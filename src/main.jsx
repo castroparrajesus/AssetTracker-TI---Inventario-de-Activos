@@ -2,7 +2,7 @@ import { StrictMode, useState, useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
 import { supabase } from './supabase'
 import App from './App.jsx'
-import Login from './Login.jsx'
+import Login from './login.jsx'
 
 function Root() {
   const [session, setSession] = useState(null)
