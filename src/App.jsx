@@ -43,13 +43,17 @@ function FormModal({ asset, onClose, onSave }) {
   const [loading, setLoading] = useState(false);
   const set = (k,v) => setForm(f => ({...f,[k]:v}));
 
-  const handleSave = async () => {
-    if (!form.nombre) return;
-    setLoading(true);
-    await onSave(form);
-    setLoading(false);
-    onClose();
-  };
+  const handleSave = async (form) => {
+  const ahora = new Date().toLocaleDateString("es-CO");
+  if (form.id) {
+    const historial = [...(form.historial||[]), { fecha:ahora, evento:`Editado: estado=${form.estado}, área=${form.area}` }];
+    await supabase.from('activos').update({ ...form, historial }).eq('id', form.id);
+  } else {
+    const historial = [{ fecha:ahora, evento:"Activo creado" }];
+    await supabase.from('activos').insert([{ ...form, historial, user_id: session.user.id }]);
+  }
+  await cargarActivos();
+};
 
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:200,backdropFilter:"blur(4px)"}}>
