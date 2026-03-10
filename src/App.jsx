@@ -1,5 +1,15 @@
+// ============================================================
+//  AssetTracker TI — Semana 3
+//  ✅ Supabase conectado (base de datos real)
+//  ✅ Gráficas con Recharts
+//  ✅ Exportar Excel y PDF
+//  ✅ Historial de cambios
+//  ✅ Alertas de mantenimiento
+// ============================================================
+
 import { useState, useMemo, useEffect } from "react";
 import { supabase } from "./supabase";
+
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from "recharts";
 
 const TIPOS   = ["Laptop","Desktop","Servidor","Switch","Router","Impresora","Monitor","UPS","Teléfono IP","Otro"];
@@ -32,6 +42,9 @@ const S = {
   input:  { width:"100%", background:"#1e293b", border:"1px solid #334155", borderRadius:8, padding:"10px 12px", color:"#e2e8f0", fontSize:14, outline:"none", boxSizing:"border-box", fontFamily:"inherit" },
 };
 
+// ═══════════════════════════════════════════════════════════
+//  MODAL CREAR/EDITAR
+// ═══════════════════════════════════════════════════════════
 function FormModal({ asset, onClose, onSave }) {
   const [form, setForm] = useState(asset || {
     nombre:"", tipo:"Laptop", serial:"", marca:"", modelo:"",
@@ -43,17 +56,13 @@ function FormModal({ asset, onClose, onSave }) {
   const [loading, setLoading] = useState(false);
   const set = (k,v) => setForm(f => ({...f,[k]:v}));
 
-  const handleSave = async (form) => {
-  const ahora = new Date().toLocaleDateString("es-CO");
-  if (form.id) {
-    const historial = [...(form.historial||[]), { fecha:ahora, evento:`Editado: estado=${form.estado}, área=${form.area}` }];
-    await supabase.from('activos').update({ ...form, historial }).eq('id', form.id);
-  } else {
-    const historial = [{ fecha:ahora, evento:"Activo creado" }];
-    await supabase.from('activos').insert([{ ...form, historial, user_id: session.user.id }]);
-  }
-  await cargarActivos();
-};
+  const handleSave = async () => {
+    if (!form.nombre) return;
+    setLoading(true);
+    await onSave(form);
+    setLoading(false);
+    onClose();
+  };
 
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:200,backdropFilter:"blur(4px)"}}>
@@ -95,7 +104,7 @@ function FormModal({ asset, onClose, onSave }) {
         <div style={{display:"flex",gap:12,marginTop:24,justifyContent:"flex-end"}}>
           <button onClick={onClose} style={{padding:"10px 20px",background:"transparent",border:"1px solid #334155",borderRadius:8,color:"#94a3b8",cursor:"pointer",fontFamily:"'Space Mono',monospace",fontSize:13}}>Cancelar</button>
           <button onClick={handleSave} disabled={loading} style={{padding:"10px 24px",background:"linear-gradient(135deg,#0ea5e9,#6366f1)",border:"none",borderRadius:8,color:"#fff",cursor:"pointer",fontFamily:"'Space Mono',monospace",fontSize:13,fontWeight:700,opacity:loading?0.7:1}}>
-            {loading ? "Guardando..." : asset ? "Guardar cambios" : "Crear activo"}
+            {loading ? "Guardando..." : asset?"Guardar cambios":"Crear activo"}
           </button>
         </div>
       </div>
@@ -103,6 +112,9 @@ function FormModal({ asset, onClose, onSave }) {
   );
 }
 
+// ═══════════════════════════════════════════════════════════
+//  MODAL DETALLE + HISTORIAL
+// ═══════════════════════════════════════════════════════════
 function DetailModal({ asset, onClose }) {
   const dias = diasDesdeMantenimiento(asset.ultimo_mantenimiento);
   return (
@@ -163,11 +175,15 @@ function DetailModal({ asset, onClose }) {
   );
 }
 
+// ═══════════════════════════════════════════════════════════
+//  PANEL DE GRÁFICAS
+// ═══════════════════════════════════════════════════════════
 function ChartsPanel({ assets }) {
   const byEstado = ESTADOS.map(e => ({ name:e, value: assets.filter(a=>a.estado===e).length })).filter(d=>d.value>0);
   const byTipo   = Object.entries(assets.reduce((acc,a)=>({...acc,[a.tipo]:(acc[a.tipo]||0)+1}),{})).map(([name,value])=>({name,value})).sort((a,b)=>b.value-a.value);
   const byArea   = Object.entries(assets.reduce((acc,a)=>({...acc,[a.area]:(acc[a.area]||0)+1}),{})).map(([name,value])=>({name,value})).sort((a,b)=>b.value-a.value);
   const cardStyle = { background:"#0f172a", border:"1px solid #1e293b", borderRadius:14, padding:"20px 16px" };
+
   return (
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:16,marginBottom:28}}>
       <div style={cardStyle}>
@@ -175,7 +191,7 @@ function ChartsPanel({ assets }) {
         <ResponsiveContainer width="100%" height={180}>
           <PieChart>
             <Pie data={byEstado} cx="50%" cy="50%" innerRadius={45} outerRadius={70} dataKey="value" paddingAngle={3}>
-              {byEstado.map((_,i) => <Cell key={i} fill={PIE_COLORS[i%PIE_COLORS.length]}/>)}
+              {byEstado.map((_,i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]}/>)}
             </Pie>
             <Tooltip contentStyle={{background:"#1e293b",border:"1px solid #334155",borderRadius:8,color:"#e2e8f0",fontSize:12}}/>
             <Legend wrapperStyle={{fontSize:11,fontFamily:"'Space Mono',monospace",color:"#64748b"}}/>
@@ -212,6 +228,9 @@ function ChartsPanel({ assets }) {
   );
 }
 
+// ═══════════════════════════════════════════════════════════
+//  EXPORTAR
+// ═══════════════════════════════════════════════════════════
 function exportExcel(assets) {
   import('xlsx').then(XLSX => {
     const ws = XLSX.utils.json_to_sheet(assets.map(a => ({
@@ -246,6 +265,9 @@ function exportPDF(assets) {
   })
 }
 
+// ═══════════════════════════════════════════════════════════
+//  APP PRINCIPAL
+// ═══════════════════════════════════════════════════════════
 export default function InventarioTI({ session }) {
   const [assets,  setAssets]  = useState([]);
   const [loading, setLoading] = useState(true);
@@ -258,7 +280,10 @@ export default function InventarioTI({ session }) {
   const [delId,   setDelId]   = useState(null);
   const [tab,     setTab]     = useState("tabla");
 
-  useEffect(() => { cargarActivos(); }, []);
+  // ── Cargar activos desde Supabase ──
+  useEffect(() => {
+    cargarActivos();
+  }, []);
 
   async function cargarActivos() {
     setLoading(true);
@@ -283,18 +308,22 @@ export default function InventarioTI({ session }) {
     alertas: assets.filter(a=>diasDesdeMantenimiento(a.ultimo_mantenimiento)>180 && a.estado==="Activo").length,
   }), [assets]);
 
+  // ── Crear / Editar ──
   const handleSave = async (form) => {
     const ahora = new Date().toLocaleDateString("es-CO");
+    const { data: authData } = await supabase.auth.getUser();
+    const userId = authData?.user?.id;
     if (form.id) {
       const historial = [...(form.historial||[]), { fecha:ahora, evento:`Editado: estado=${form.estado}, área=${form.area}` }];
       await supabase.from('activos').update({ ...form, historial }).eq('id', form.id);
     } else {
       const historial = [{ fecha:ahora, evento:"Activo creado" }];
-      await supabase.from('activos').insert([{ ...form, historial }]);
+      await supabase.from('activos').insert([{ ...form, historial, user_id: userId }]);
     }
     await cargarActivos();
   };
 
+  // ── Eliminar ──
   const handleDelete = async (id) => {
     await supabase.from('activos').delete().eq('id', id);
     setDelId(null);
@@ -321,7 +350,7 @@ export default function InventarioTI({ session }) {
             <div style={{width:36,height:36,borderRadius:10,background:"linear-gradient(135deg,#0ea5e9,#6366f1)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>🗄️</div>
             <div>
               <div style={{fontFamily:"'Space Mono',monospace",fontSize:15,fontWeight:700,color:"#e2e8f0"}}>AssetTracker TI</div>
-              <div style={{fontSize:11,color:"#475569",fontFamily:"'Space Mono',monospace"}}>{session?.user?.email}</div>
+              <div style={{fontSize:11,color:"#475569",fontFamily:"'Space Mono',monospace"}}>v3.0 — con Supabase</div>
             </div>
           </div>
           <div style={{display:"flex",gap:10,alignItems:"center"}}>
@@ -454,6 +483,7 @@ export default function InventarioTI({ session }) {
         </div>
       </div>
 
+      {/* MODALS */}
       {(modal==="create"||(modal&&modal.id)) && <FormModal asset={modal==="create"?null:modal} onClose={()=>setModal(null)} onSave={handleSave}/>}
       {detail && <DetailModal asset={detail} onClose={()=>setDetail(null)}/>}
       {delId && (
