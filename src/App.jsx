@@ -1,46 +1,28 @@
 // ============================================================
-//  AssetTracker TI — Semana 2
-//  Nuevas features:
-//   ✅ Gráficas con Recharts (por estado, por tipo, por área)
-//   ✅ Exportar a Excel (SheetJS)
-//   ✅ Exportar a PDF (jsPDF + autoTable)
-//   ✅ Capa de datos lista para conectar Supabase
-//   ✅ Historial de cambios por activo
-//   ✅ Alertas de mantenimiento próximo
+//  AssetTracker TI — Semana 3
+//  ✅ Supabase conectado (base de datos real)
+//  ✅ Gráficas con Recharts
+//  ✅ Exportar Excel y PDF
+//  ✅ Historial de cambios
+//  ✅ Alertas de mantenimiento
 // ============================================================
 
-import { useState, useMemo } from "react";
-import {
-  PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis,
-  Tooltip, ResponsiveContainer, Legend
-} from "recharts";
+import { useState, useMemo, useEffect } from "react";
+import { supabase } from "./supabase";
+import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from "recharts";
 
-// ─── SUPABASE LAYER ────────────────────────────────────────
-// Para activar Supabase real, descomenta estas líneas
-// y reemplaza con tus credenciales de supabase.com:
-//
-// import { createClient } from '@supabase/supabase-js'
-// const supabase = createClient('TU_URL', 'TU_ANON_KEY')
-//
-// Luego reemplaza las funciones de abajo con llamadas reales:
-// const { data } = await supabase.from('activos').select('*')
-// await supabase.from('activos').insert([nuevoActivo])
-// await supabase.from('activos').update(datos).eq('id', id)
-// await supabase.from('activos').delete().eq('id', id)
-// ──────────────────────────────────────────────────────────
+const TIPOS   = ["Laptop","Desktop","Servidor","Switch","Router","Impresora","Monitor","UPS","Teléfono IP","Otro"];
+const ESTADOS = ["Activo","En mantenimiento","Dado de baja","En bodega"];
+const AREAS   = ["TI","Gerencia","RRHH","Contabilidad","Operaciones","Seguridad","Infraestructura"];
 
-const TIPOS    = ["Laptop","Desktop","Servidor","Switch","Router","Impresora","Monitor","UPS","Teléfono IP","Otro"];
-const ESTADOS  = ["Activo","En mantenimiento","Dado de baja","En bodega"];
-const AREAS    = ["TI","Gerencia","RRHH","Contabilidad","Operaciones","Seguridad","Infraestructura"];
-
-const PIE_COLORS  = ["#22c55e","#fbbf24","#ef4444","#94a3b8"];
-const BAR_COLORS  = ["#0ea5e9","#6366f1","#f59e0b","#10b981","#f43f5e","#a78bfa","#34d399","#fb923c","#38bdf8","#e879f9"];
+const PIE_COLORS = ["#22c55e","#fbbf24","#ef4444","#94a3b8"];
+const BAR_COLORS = ["#0ea5e9","#6366f1","#f59e0b","#10b981","#f43f5e","#a78bfa","#34d399","#fb923c","#38bdf8","#e879f9"];
 
 const estadoColor = {
-  "Activo":           { bg:"rgba(34,197,94,0.15)",   text:"#22c55e", dot:"#22c55e"  },
-  "En mantenimiento": { bg:"rgba(251,191,36,0.15)",   text:"#fbbf24", dot:"#fbbf24"  },
-  "Dado de baja":     { bg:"rgba(239,68,68,0.15)",    text:"#ef4444", dot:"#ef4444"  },
-  "En bodega":        { bg:"rgba(148,163,184,0.15)",  text:"#94a3b8", dot:"#94a3b8"  },
+  "Activo":           { bg:"rgba(34,197,94,0.15)",  text:"#22c55e", dot:"#22c55e" },
+  "En mantenimiento": { bg:"rgba(251,191,36,0.15)",  text:"#fbbf24", dot:"#fbbf24" },
+  "Dado de baja":     { bg:"rgba(239,68,68,0.15)",   text:"#ef4444", dot:"#ef4444" },
+  "En bodega":        { bg:"rgba(148,163,184,0.15)", text:"#94a3b8", dot:"#94a3b8" },
 };
 
 const tipoIcon = {
@@ -49,23 +31,10 @@ const tipoIcon = {
   "Teléfono IP":"☎️", Otro:"📦"
 };
 
-const seedAssets = [
-  { id:1, nombre:"Dell Latitude 5520",   tipo:"Laptop",   serial:"DL-2023-001", marca:"Dell",   modelo:"Latitude 5520",      area:"TI",             responsable:"Jesús Castro",  estado:"Activo",           fechaIngreso:"2023-03-15", ultimoMantenimiento:"2024-11-10", ip:"192.168.1.10",  so:"Ubuntu 22.04",        notas:"Laptop principal del área TI",        historial:[] },
-  { id:2, nombre:"HP ProLiant DL380",    tipo:"Servidor", serial:"HP-SRV-002",  marca:"HP",     modelo:"ProLiant DL380 G10", area:"Infraestructura", responsable:"Carlos Mendez", estado:"Activo",           fechaIngreso:"2022-01-20", ultimoMantenimiento:"2024-09-01", ip:"192.168.1.1",   so:"Windows Server 2022", notas:"Servidor principal de aplicaciones",  historial:[] },
-  { id:3, nombre:"Cisco Catalyst 2960",  tipo:"Switch",   serial:"CS-SW-003",   marca:"Cisco",  modelo:"Catalyst 2960-X",   area:"Infraestructura", responsable:"Carlos Mendez", estado:"Activo",           fechaIngreso:"2021-07-05", ultimoMantenimiento:"2024-06-15", ip:"192.168.1.254", so:"IOS 15.2",            notas:"Switch core del piso 1",             historial:[] },
-  { id:4, nombre:"Lenovo ThinkPad E14",  tipo:"Laptop",   serial:"LN-2022-004", marca:"Lenovo", modelo:"ThinkPad E14",       area:"Contabilidad",    responsable:"María López",   estado:"En mantenimiento", fechaIngreso:"2022-05-12", ultimoMantenimiento:"2025-01-20", ip:"192.168.1.45",  so:"Windows 11",          notas:"Cambio de batería pendiente",         historial:[] },
-  { id:5, nombre:"Epson L3250",          tipo:"Impresora",serial:"EP-PR-005",   marca:"Epson",  modelo:"L3250",              area:"RRHH",            responsable:"Ana Torres",    estado:"Activo",           fechaIngreso:"2023-08-01", ultimoMantenimiento:"2024-12-01", ip:"192.168.1.80",  so:"N/A",                 notas:"Impresora multifuncional",            historial:[] },
-  { id:6, nombre:"PC HP Pavilion",       tipo:"Desktop",  serial:"HP-PC-006",   marca:"HP",     modelo:"Pavilion TP01",      area:"Gerencia",        responsable:"Luis Ramírez",  estado:"Dado de baja",     fechaIngreso:"2019-02-28", ultimoMantenimiento:"2023-05-10", ip:"N/A",           so:"Windows 10",          notas:"Equipo obsoleto, reemplazado",        historial:[] },
-  { id:7, nombre:"UPS APC Smart 1500",   tipo:"UPS",      serial:"APC-UPS-007", marca:"APC",    modelo:"Smart-UPS 1500",     area:"Infraestructura", responsable:"Carlos Mendez", estado:"Activo",           fechaIngreso:"2023-01-10", ultimoMantenimiento:"2025-01-01", ip:"N/A",           so:"N/A",                 notas:"UPS sala de servidores",             historial:[] },
-  { id:8, nombre:"Monitor LG 27UK850",   tipo:"Monitor",  serial:"LG-MON-008",  marca:"LG",     modelo:"27UK850",            area:"Diseño",          responsable:"Petra Vásquez", estado:"En bodega",        fechaIngreso:"2021-11-05", ultimoMantenimiento:"2024-03-20", ip:"N/A",           so:"N/A",                 notas:"Pendiente asignación",               historial:[] },
-];
-
-// ─── Alerta de mantenimiento: <90 días ──────────────────
 function diasDesdeMantenimiento(fecha) {
   return Math.floor((new Date() - new Date(fecha)) / 86400000);
 }
 
-// ─── Estilos globales ────────────────────────────────────
 const S = {
   select: { background:"#1e293b", border:"1px solid #334155", borderRadius:8, padding:"8px 12px", color:"#94a3b8", fontSize:13, outline:"none", cursor:"pointer", fontFamily:"'Space Mono',monospace" },
   label:  { display:"block", color:"#64748b", fontSize:11, fontFamily:"'Space Mono',monospace", marginBottom:6, textTransform:"uppercase", letterSpacing:1 },
@@ -79,11 +48,20 @@ function FormModal({ asset, onClose, onSave }) {
   const [form, setForm] = useState(asset || {
     nombre:"", tipo:"Laptop", serial:"", marca:"", modelo:"",
     area:"TI", responsable:"", estado:"Activo",
-    fechaIngreso: new Date().toISOString().split("T")[0],
-    ultimoMantenimiento: new Date().toISOString().split("T")[0],
+    fecha_ingreso: new Date().toISOString().split("T")[0],
+    ultimo_mantenimiento: new Date().toISOString().split("T")[0],
     ip:"", so:"", notas:"", historial:[]
   });
+  const [loading, setLoading] = useState(false);
   const set = (k,v) => setForm(f => ({...f,[k]:v}));
+
+  const handleSave = async () => {
+    if (!form.nombre) return;
+    setLoading(true);
+    await onSave(form);
+    setLoading(false);
+    onClose();
+  };
 
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:200,backdropFilter:"blur(4px)"}}>
@@ -101,8 +79,8 @@ function FormModal({ asset, onClose, onSave }) {
             {label:"Responsable",key:"responsable"},
             {label:"Dirección IP",key:"ip"},
             {label:"Sistema Operativo",key:"so"},
-            {label:"Fecha de Ingreso",key:"fechaIngreso",type:"date"},
-            {label:"Último Mantenimiento",key:"ultimoMantenimiento",type:"date"},
+            {label:"Fecha de Ingreso",key:"fecha_ingreso",type:"date"},
+            {label:"Último Mantenimiento",key:"ultimo_mantenimiento",type:"date"},
           ].map(({label,key,full,type="text"}) => (
             <div key={key} style={{gridColumn:full?"1/-1":"auto"}}>
               <label style={S.label}>{label}</label>
@@ -124,7 +102,9 @@ function FormModal({ asset, onClose, onSave }) {
         </div>
         <div style={{display:"flex",gap:12,marginTop:24,justifyContent:"flex-end"}}>
           <button onClick={onClose} style={{padding:"10px 20px",background:"transparent",border:"1px solid #334155",borderRadius:8,color:"#94a3b8",cursor:"pointer",fontFamily:"'Space Mono',monospace",fontSize:13}}>Cancelar</button>
-          <button onClick={()=>{if(!form.nombre)return; onSave(form); onClose();}} style={{padding:"10px 24px",background:"linear-gradient(135deg,#0ea5e9,#6366f1)",border:"none",borderRadius:8,color:"#fff",cursor:"pointer",fontFamily:"'Space Mono',monospace",fontSize:13,fontWeight:700}}>{asset?"Guardar cambios":"Crear activo"}</button>
+          <button onClick={handleSave} disabled={loading} style={{padding:"10px 24px",background:"linear-gradient(135deg,#0ea5e9,#6366f1)",border:"none",borderRadius:8,color:"#fff",cursor:"pointer",fontFamily:"'Space Mono',monospace",fontSize:13,fontWeight:700,opacity:loading?0.7:1}}>
+            {loading ? "Guardando..." : asset?"Guardar cambios":"Crear activo"}
+          </button>
         </div>
       </div>
     </div>
@@ -135,7 +115,7 @@ function FormModal({ asset, onClose, onSave }) {
 //  MODAL DETALLE + HISTORIAL
 // ═══════════════════════════════════════════════════════════
 function DetailModal({ asset, onClose }) {
-  const dias = diasDesdeMantenimiento(asset.ultimoMantenimiento);
+  const dias = diasDesdeMantenimiento(asset.ultimo_mantenimiento);
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:200,backdropFilter:"blur(4px)"}}>
       <div style={{background:"#0f172a",border:"1px solid #1e3a5f",borderRadius:16,padding:32,width:"min(580px,95vw)",maxHeight:"90vh",overflowY:"auto",boxShadow:"0 25px 60px rgba(0,0,0,0.6)"}}>
@@ -149,32 +129,27 @@ function DetailModal({ asset, onClose }) {
           </div>
           <button onClick={onClose} style={{background:"none",border:"none",color:"#64748b",cursor:"pointer",fontSize:20}}>✕</button>
         </div>
-
         {dias > 180 && (
           <div style={{background:"rgba(251,191,36,0.1)",border:"1px solid rgba(251,191,36,0.3)",borderRadius:10,padding:"10px 14px",marginBottom:16,color:"#fbbf24",fontSize:13,fontFamily:"'Space Mono',monospace"}}>
             ⚠️ Sin mantenimiento hace {dias} días
           </div>
         )}
-
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
           {[["Tipo",asset.tipo],["Área",asset.area],["Marca",asset.marca],["Modelo",asset.modelo],
             ["Responsable",asset.responsable],["IP",asset.ip],["SO",asset.so],
-            ["Ingreso",asset.fechaIngreso],["Últ. Mantenimiento",asset.ultimoMantenimiento]].map(([k,v])=>(
+            ["Ingreso",asset.fecha_ingreso],["Últ. Mantenimiento",asset.ultimo_mantenimiento]].map(([k,v])=>(
             <div key={k} style={{background:"#1e293b",borderRadius:10,padding:"10px 14px"}}>
               <div style={{color:"#475569",fontSize:10,fontFamily:"'Space Mono',monospace",textTransform:"uppercase",letterSpacing:1,marginBottom:3}}>{k}</div>
               <div style={{color:"#cbd5e1",fontSize:13}}>{v||"—"}</div>
             </div>
           ))}
         </div>
-
         {asset.notas && (
           <div style={{marginTop:10,background:"#1e293b",borderRadius:10,padding:"10px 14px"}}>
             <div style={{color:"#475569",fontSize:10,fontFamily:"'Space Mono',monospace",textTransform:"uppercase",letterSpacing:1,marginBottom:3}}>Notas</div>
             <div style={{color:"#cbd5e1",fontSize:13}}>{asset.notas}</div>
           </div>
         )}
-
-        {/* Historial */}
         {asset.historial && asset.historial.length > 0 && (
           <div style={{marginTop:16}}>
             <div style={{color:"#475569",fontSize:11,fontFamily:"'Space Mono',monospace",textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>Historial de cambios</div>
@@ -188,7 +163,6 @@ function DetailModal({ asset, onClose }) {
             </div>
           </div>
         )}
-
         <div style={{marginTop:16,display:"flex",justifyContent:"center"}}>
           <span style={{display:"inline-flex",alignItems:"center",gap:6,padding:"6px 16px",borderRadius:20,background:estadoColor[asset.estado].bg,color:estadoColor[asset.estado].text,fontFamily:"'Space Mono',monospace",fontSize:12}}>
             <span style={{width:6,height:6,borderRadius:"50%",background:estadoColor[asset.estado].dot}}></span>
@@ -207,12 +181,10 @@ function ChartsPanel({ assets }) {
   const byEstado = ESTADOS.map(e => ({ name:e, value: assets.filter(a=>a.estado===e).length })).filter(d=>d.value>0);
   const byTipo   = Object.entries(assets.reduce((acc,a)=>({...acc,[a.tipo]:(acc[a.tipo]||0)+1}),{})).map(([name,value])=>({name,value})).sort((a,b)=>b.value-a.value);
   const byArea   = Object.entries(assets.reduce((acc,a)=>({...acc,[a.area]:(acc[a.area]||0)+1}),{})).map(([name,value])=>({name,value})).sort((a,b)=>b.value-a.value);
-
   const cardStyle = { background:"#0f172a", border:"1px solid #1e293b", borderRadius:14, padding:"20px 16px" };
 
   return (
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:16,marginBottom:28}}>
-      {/* Por Estado */}
       <div style={cardStyle}>
         <div style={{color:"#64748b",fontSize:11,fontFamily:"'Space Mono',monospace",textTransform:"uppercase",letterSpacing:1,marginBottom:16}}>Por Estado</div>
         <ResponsiveContainer width="100%" height={180}>
@@ -225,8 +197,6 @@ function ChartsPanel({ assets }) {
           </PieChart>
         </ResponsiveContainer>
       </div>
-
-      {/* Por Tipo */}
       <div style={cardStyle}>
         <div style={{color:"#64748b",fontSize:11,fontFamily:"'Space Mono',monospace",textTransform:"uppercase",letterSpacing:1,marginBottom:16}}>Por Tipo</div>
         <ResponsiveContainer width="100%" height={180}>
@@ -240,8 +210,6 @@ function ChartsPanel({ assets }) {
           </BarChart>
         </ResponsiveContainer>
       </div>
-
-      {/* Por Área */}
       <div style={cardStyle}>
         <div style={{color:"#64748b",fontSize:11,fontFamily:"'Space Mono',monospace",textTransform:"uppercase",letterSpacing:1,marginBottom:16}}>Por Área</div>
         <ResponsiveContainer width="100%" height={180}>
@@ -260,7 +228,7 @@ function ChartsPanel({ assets }) {
 }
 
 // ═══════════════════════════════════════════════════════════
-//  EXPORTAR EXCEL — usando SheetJS (CDN)
+//  EXPORTAR
 // ═══════════════════════════════════════════════════════════
 function exportExcel(assets) {
   import('xlsx').then(XLSX => {
@@ -268,8 +236,8 @@ function exportExcel(assets) {
       Nombre: a.nombre, Tipo: a.tipo, Serial: a.serial,
       Marca: a.marca, Modelo: a.modelo, Area: a.area,
       Responsable: a.responsable, Estado: a.estado,
-      IP: a.ip, SO: a.so, Ingreso: a.fechaIngreso,
-      "Últ. Mantenimiento": a.ultimoMantenimiento, Notas: a.notas
+      IP: a.ip, SO: a.so, Ingreso: a.fecha_ingreso,
+      "Últ. Mantenimiento": a.ultimo_mantenimiento, Notas: a.notas
     })))
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, "Inventario")
@@ -277,9 +245,6 @@ function exportExcel(assets) {
   })
 }
 
-// ═══════════════════════════════════════════════════════════
-//  EXPORTAR PDF — usando jsPDF + autoTable
-// ═══════════════════════════════════════════════════════════
 function exportPDF(assets) {
   Promise.all([import('jspdf'), import('jspdf-autotable')]).then(([{ default: jsPDF }, { default: autoTable }]) => {
     const doc = new jsPDF({ orientation: 'landscape' })
@@ -290,7 +255,7 @@ function exportPDF(assets) {
     autoTable(doc, {
       startY: 28,
       head: [['Nombre','Tipo','Serial','Área','Responsable','IP','Estado','Últ. Mant.']],
-      body: assets.map(a => [a.nombre,a.tipo,a.serial,a.area,a.responsable,a.ip,a.estado,a.ultimoMantenimiento]),
+      body: assets.map(a => [a.nombre,a.tipo,a.serial,a.area,a.responsable,a.ip,a.estado,a.ultimo_mantenimiento]),
       styles: { fontSize: 8, cellPadding: 3 },
       headStyles: { fillColor: [14,165,233], textColor: 255, fontStyle: 'bold' },
       alternateRowStyles: { fillColor: [240,248,255] }
@@ -303,22 +268,35 @@ function exportPDF(assets) {
 //  APP PRINCIPAL
 // ═══════════════════════════════════════════════════════════
 export default function InventarioTI() {
-  const [assets,   setAssets]   = useState(seedAssets);
-  const [search,   setSearch]   = useState("");
-  const [filterT,  setFilterT]  = useState("Todos");
-  const [filterE,  setFilterE]  = useState("Todos");
-  const [filterA,  setFilterA]  = useState("Todas");
-  const [modal,    setModal]    = useState(null);
-  const [detail,   setDetail]   = useState(null);
-  const [delId,    setDelId]    = useState(null);
-  const [tab,      setTab]      = useState("tabla"); // "tabla" | "graficas"
+  const [assets,  setAssets]  = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [search,  setSearch]  = useState("");
+  const [filterT, setFilterT] = useState("Todos");
+  const [filterE, setFilterE] = useState("Todos");
+  const [filterA, setFilterA] = useState("Todas");
+  const [modal,   setModal]   = useState(null);
+  const [detail,  setDetail]  = useState(null);
+  const [delId,   setDelId]   = useState(null);
+  const [tab,     setTab]     = useState("tabla");
+
+  // ── Cargar activos desde Supabase ──
+  useEffect(() => {
+    cargarActivos();
+  }, []);
+
+  async function cargarActivos() {
+    setLoading(true);
+    const { data, error } = await supabase.from('activos').select('*').order('created_at', { ascending: false });
+    if (!error) setAssets(data || []);
+    setLoading(false);
+  }
 
   const filtered = useMemo(() => assets.filter(a => {
     const q = search.toLowerCase();
-    return (!q || [a.nombre,a.serial,a.responsable,a.ip].some(f=>f.toLowerCase().includes(q)))
-      && (filterT==="Todos"  || a.tipo===filterT)
-      && (filterE==="Todos"  || a.estado===filterE)
-      && (filterA==="Todas"  || a.area===filterA);
+    return (!q || [a.nombre,a.serial,a.responsable,a.ip].some(f=>(f||"").toLowerCase().includes(q)))
+      && (filterT==="Todos" || a.tipo===filterT)
+      && (filterE==="Todos" || a.estado===filterE)
+      && (filterA==="Todas" || a.area===filterA);
   }), [assets, search, filterT, filterE, filterA]);
 
   const stats = useMemo(() => ({
@@ -326,24 +304,27 @@ export default function InventarioTI() {
     activos: assets.filter(a=>a.estado==="Activo").length,
     mant:    assets.filter(a=>a.estado==="En mantenimiento").length,
     baja:    assets.filter(a=>a.estado==="Dado de baja").length,
-    alertas: assets.filter(a=>diasDesdeMantenimiento(a.ultimoMantenimiento)>180 && a.estado==="Activo").length,
+    alertas: assets.filter(a=>diasDesdeMantenimiento(a.ultimo_mantenimiento)>180 && a.estado==="Activo").length,
   }), [assets]);
 
-  const handleSave = (form) => {
+  // ── Crear / Editar ──
+  const handleSave = async (form) => {
     const ahora = new Date().toLocaleDateString("es-CO");
     if (form.id) {
-      setAssets(prev => prev.map(a => a.id===form.id
-        ? { ...form, historial:[...(a.historial||[]), { fecha:ahora, evento:`Editado: estado=${form.estado}, área=${form.area}` }] }
-        : a
-      ));
+      const historial = [...(form.historial||[]), { fecha:ahora, evento:`Editado: estado=${form.estado}, área=${form.area}` }];
+      await supabase.from('activos').update({ ...form, historial }).eq('id', form.id);
     } else {
-      setAssets(prev => [...prev, { ...form, id:Date.now(), historial:[{ fecha:ahora, evento:"Activo creado" }] }]);
+      const historial = [{ fecha:ahora, evento:"Activo creado" }];
+      await supabase.from('activos').insert([{ ...form, historial }]);
     }
+    await cargarActivos();
   };
 
-  const handleDelete = (id) => {
-    setAssets(prev => prev.filter(a=>a.id!==id));
+  // ── Eliminar ──
+  const handleDelete = async (id) => {
+    await supabase.from('activos').delete().eq('id', id);
     setDelId(null);
+    await cargarActivos();
   };
 
   return (
@@ -355,24 +336,21 @@ export default function InventarioTI() {
         .row-hover{transition:background .15s;} .row-hover:hover{background:rgba(14,165,233,0.05)!important;}
         .act-btn{opacity:0;transition:opacity .15s;} .row-hover:hover .act-btn{opacity:1;}
         .stat-card{transition:transform .2s,box-shadow .2s;} .stat-card:hover{transform:translateY(-2px);box-shadow:0 12px 30px rgba(0,0,0,0.4);}
-        .tab-btn{transition:all .2s;}
-        .exp-btn{transition:background .15s;}
-        .exp-btn:hover{background:rgba(255,255,255,0.08)!important;}
+        .tab-btn{transition:all .2s;} .exp-btn{transition:background .15s;} .exp-btn:hover{background:rgba(255,255,255,0.08)!important;}
       `}</style>
 
       <div style={{minHeight:"100vh",background:"#060d1a",fontFamily:"'DM Sans',sans-serif",color:"#e2e8f0"}}>
 
-        {/* ── HEADER ── */}
+        {/* HEADER */}
         <div style={{borderBottom:"1px solid #1e293b",padding:"18px 28px",display:"flex",justifyContent:"space-between",alignItems:"center",background:"rgba(15,23,42,0.85)",backdropFilter:"blur(12px)",position:"sticky",top:0,zIndex:50}}>
           <div style={{display:"flex",alignItems:"center",gap:12}}>
             <div style={{width:36,height:36,borderRadius:10,background:"linear-gradient(135deg,#0ea5e9,#6366f1)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>🗄️</div>
             <div>
               <div style={{fontFamily:"'Space Mono',monospace",fontSize:15,fontWeight:700,color:"#e2e8f0"}}>AssetTracker TI</div>
-              <div style={{fontSize:11,color:"#475569",fontFamily:"'Space Mono',monospace"}}>v2.0 — con gráficas y exportación</div>
+              <div style={{fontSize:11,color:"#475569",fontFamily:"'Space Mono',monospace"}}>v3.0 — con Supabase</div>
             </div>
           </div>
           <div style={{display:"flex",gap:10,alignItems:"center"}}>
-            {/* Exportar */}
             <button className="exp-btn" onClick={()=>exportExcel(assets)} style={{display:"flex",alignItems:"center",gap:6,padding:"8px 14px",background:"rgba(255,255,255,0.05)",border:"1px solid #334155",borderRadius:9,color:"#94a3b8",cursor:"pointer",fontFamily:"'Space Mono',monospace",fontSize:12}}>📊 Excel</button>
             <button className="exp-btn" onClick={()=>exportPDF(assets)}   style={{display:"flex",alignItems:"center",gap:6,padding:"8px 14px",background:"rgba(255,255,255,0.05)",border:"1px solid #334155",borderRadius:9,color:"#94a3b8",cursor:"pointer",fontFamily:"'Space Mono',monospace",fontSize:12}}>📄 PDF</button>
             <button onClick={()=>setModal("create")} style={{display:"flex",alignItems:"center",gap:6,padding:"9px 18px",background:"linear-gradient(135deg,#0ea5e9,#6366f1)",border:"none",borderRadius:10,color:"#fff",cursor:"pointer",fontFamily:"'Space Mono',monospace",fontSize:13,fontWeight:700,boxShadow:"0 4px 15px rgba(14,165,233,0.3)"}}>+ Nuevo</button>
@@ -381,7 +359,7 @@ export default function InventarioTI() {
 
         <div style={{width:"100%",padding:"28px 32px",boxSizing:"border-box"}}>
 
-          {/* ── STATS ── */}
+          {/* STATS */}
           <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:14,marginBottom:26}}>
             {[
               {label:"Total",   value:stats.total,   color:"#0ea5e9", icon:"📦"},
@@ -401,7 +379,7 @@ export default function InventarioTI() {
             ))}
           </div>
 
-          {/* ── TABS ── */}
+          {/* TABS */}
           <div style={{display:"flex",gap:4,marginBottom:20,background:"#0f172a",borderRadius:10,padding:4,border:"1px solid #1e293b",width:"fit-content"}}>
             {[["tabla","📋 Inventario"],["graficas","📊 Gráficas"]].map(([t,label])=>(
               <button key={t} className="tab-btn" onClick={()=>setTab(t)} style={{padding:"8px 18px",borderRadius:7,border:"none",cursor:"pointer",fontFamily:"'Space Mono',monospace",fontSize:12,fontWeight:700,background:tab===t?"linear-gradient(135deg,#0ea5e9,#6366f1)":"transparent",color:tab===t?"#fff":"#475569"}}>
@@ -410,10 +388,8 @@ export default function InventarioTI() {
             ))}
           </div>
 
-          {/* ── GRÁFICAS ── */}
           {tab === "graficas" && <ChartsPanel assets={assets}/>}
 
-          {/* ── FILTROS + TABLA ── */}
           {tab === "tabla" && (
             <>
               <div style={{display:"flex",gap:10,marginBottom:18,flexWrap:"wrap",alignItems:"center"}}>
@@ -422,9 +398,9 @@ export default function InventarioTI() {
                   <input placeholder="Buscar nombre, serial, IP..." value={search} onChange={e=>setSearch(e.target.value)}
                     style={{width:"100%",background:"#1e293b",border:"1px solid #334155",borderRadius:9,padding:"9px 12px 9px 34px",color:"#e2e8f0",fontSize:13,outline:"none",fontFamily:"inherit"}}/>
                 </div>
-                {[{val:filterT,set:setFilterT,opts:["Todos",...TIPOS],lbl:"Tipo"},
-                  {val:filterE,set:setFilterE,opts:["Todos",...ESTADOS],lbl:"Estado"},
-                  {val:filterA,set:setFilterA,opts:["Todas",...AREAS],lbl:"Área"}].map(({val,set,opts})=>(
+                {[{val:filterT,set:setFilterT,opts:["Todos",...TIPOS]},
+                  {val:filterE,set:setFilterE,opts:["Todos",...ESTADOS]},
+                  {val:filterA,set:setFilterA,opts:["Todas",...AREAS]}].map(({val,set,opts})=>(
                   <select key={opts[0]} value={val} onChange={e=>set(e.target.value)} style={S.select}>
                     {opts.map(o=><option key={o}>{o}</option>)}
                   </select>
@@ -433,62 +409,69 @@ export default function InventarioTI() {
               </div>
 
               <div style={{background:"#0f172a",border:"1px solid #1e293b",borderRadius:14,overflow:"hidden"}}>
-                <div style={{overflowX:"auto"}}>
-                  <table style={{width:"100%",borderCollapse:"collapse",minWidth:860}}>
-                    <thead>
-                      <tr style={{borderBottom:"1px solid #1e293b"}}>
-                        {["Activo","Tipo","Serial","Área","Responsable","IP","Últ. Mant.","Estado",""].map(h=>(
-                          <th key={h} style={{padding:"13px 14px",textAlign:"left",color:"#334155",fontSize:10,fontFamily:"'Space Mono',monospace",textTransform:"uppercase",letterSpacing:1,whiteSpace:"nowrap"}}>{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filtered.map((a,i) => {
-                        const dias = diasDesdeMantenimiento(a.ultimoMantenimiento);
-                        const alerta = dias > 180 && a.estado === "Activo";
-                        return (
-                          <tr key={a.id} className="row-hover"
-                            style={{borderBottom:"1px solid #111d2e",background:i%2===0?"transparent":"rgba(255,255,255,0.01)",cursor:"pointer"}}
-                            onClick={()=>setDetail(a)}>
-                            <td style={{padding:"13px 14px"}}>
-                              <div style={{display:"flex",alignItems:"center",gap:9}}>
-                                <span style={{fontSize:18}}>{tipoIcon[a.tipo]}</span>
-                                <div>
-                                  <div style={{color:"#e2e8f0",fontSize:14,fontWeight:500}}>{a.nombre}</div>
-                                  {alerta && <div style={{color:"#f97316",fontSize:10,fontFamily:"'Space Mono',monospace"}}>⚠️ {dias}d sin mant.</div>}
+                {loading ? (
+                  <div style={{textAlign:"center",padding:"48px 24px",color:"#334155"}}>
+                    <div style={{fontSize:36,marginBottom:10}}>⏳</div>
+                    <div style={{fontFamily:"'Space Mono',monospace",fontSize:13}}>Cargando activos...</div>
+                  </div>
+                ) : (
+                  <div style={{overflowX:"auto"}}>
+                    <table style={{width:"100%",borderCollapse:"collapse",minWidth:860}}>
+                      <thead>
+                        <tr style={{borderBottom:"1px solid #1e293b"}}>
+                          {["Activo","Tipo","Serial","Área","Responsable","IP","Últ. Mant.","Estado",""].map(h=>(
+                            <th key={h} style={{padding:"13px 14px",textAlign:"left",color:"#334155",fontSize:10,fontFamily:"'Space Mono',monospace",textTransform:"uppercase",letterSpacing:1,whiteSpace:"nowrap"}}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filtered.map((a,i) => {
+                          const dias = diasDesdeMantenimiento(a.ultimo_mantenimiento);
+                          const alerta = dias > 180 && a.estado === "Activo";
+                          return (
+                            <tr key={a.id} className="row-hover"
+                              style={{borderBottom:"1px solid #111d2e",background:i%2===0?"transparent":"rgba(255,255,255,0.01)",cursor:"pointer"}}
+                              onClick={()=>setDetail(a)}>
+                              <td style={{padding:"13px 14px"}}>
+                                <div style={{display:"flex",alignItems:"center",gap:9}}>
+                                  <span style={{fontSize:18}}>{tipoIcon[a.tipo]}</span>
+                                  <div>
+                                    <div style={{color:"#e2e8f0",fontSize:14,fontWeight:500}}>{a.nombre}</div>
+                                    {alerta && <div style={{color:"#f97316",fontSize:10,fontFamily:"'Space Mono',monospace"}}>⚠️ {dias}d sin mant.</div>}
+                                  </div>
                                 </div>
-                              </div>
-                            </td>
-                            <td style={{padding:"13px 14px",color:"#64748b",fontSize:13}}>{a.tipo}</td>
-                            <td style={{padding:"13px 14px"}}><code style={{color:"#0ea5e9",fontSize:12,background:"rgba(14,165,233,0.08)",padding:"2px 7px",borderRadius:4}}>{a.serial}</code></td>
-                            <td style={{padding:"13px 14px",color:"#64748b",fontSize:13}}>{a.area}</td>
-                            <td style={{padding:"13px 14px",color:"#94a3b8",fontSize:13}}>{a.responsable}</td>
-                            <td style={{padding:"13px 14px"}}><code style={{color:"#6366f1",fontSize:12}}>{a.ip}</code></td>
-                            <td style={{padding:"13px 14px",color:"#64748b",fontSize:12,fontFamily:"'Space Mono',monospace"}}>{a.ultimoMantenimiento}</td>
-                            <td style={{padding:"13px 14px"}}>
-                              <span style={{display:"inline-flex",alignItems:"center",gap:5,padding:"3px 10px",borderRadius:20,background:estadoColor[a.estado].bg,color:estadoColor[a.estado].text,fontSize:11,fontFamily:"'Space Mono',monospace",whiteSpace:"nowrap"}}>
-                                <span style={{width:5,height:5,borderRadius:"50%",background:estadoColor[a.estado].dot}}></span>
-                                {a.estado}
-                              </span>
-                            </td>
-                            <td style={{padding:"13px 14px"}} onClick={e=>e.stopPropagation()}>
-                              <div style={{display:"flex",gap:5}}>
-                                <button className="act-btn" onClick={()=>setModal(a)} style={{padding:"4px 9px",background:"rgba(99,102,241,0.15)",border:"1px solid rgba(99,102,241,0.3)",borderRadius:6,color:"#818cf8",cursor:"pointer",fontSize:12}}>✏️</button>
-                                <button className="act-btn" onClick={()=>setDelId(a.id)} style={{padding:"4px 9px",background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.2)",borderRadius:6,color:"#f87171",cursor:"pointer",fontSize:12}}>🗑️</button>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                  {filtered.length===0 && (
-                    <div style={{textAlign:"center",padding:"40px 24px",color:"#334155"}}>
-                      <div style={{fontSize:36,marginBottom:10}}>📭</div>
-                      <div style={{fontFamily:"'Space Mono',monospace",fontSize:13}}>No se encontraron activos</div>
-                    </div>
-                  )}
-                </div>
+                              </td>
+                              <td style={{padding:"13px 14px",color:"#64748b",fontSize:13}}>{a.tipo}</td>
+                              <td style={{padding:"13px 14px"}}><code style={{color:"#0ea5e9",fontSize:12,background:"rgba(14,165,233,0.08)",padding:"2px 7px",borderRadius:4}}>{a.serial}</code></td>
+                              <td style={{padding:"13px 14px",color:"#64748b",fontSize:13}}>{a.area}</td>
+                              <td style={{padding:"13px 14px",color:"#94a3b8",fontSize:13}}>{a.responsable}</td>
+                              <td style={{padding:"13px 14px"}}><code style={{color:"#6366f1",fontSize:12}}>{a.ip}</code></td>
+                              <td style={{padding:"13px 14px",color:"#64748b",fontSize:12,fontFamily:"'Space Mono',monospace"}}>{a.ultimo_mantenimiento}</td>
+                              <td style={{padding:"13px 14px"}}>
+                                <span style={{display:"inline-flex",alignItems:"center",gap:5,padding:"3px 10px",borderRadius:20,background:estadoColor[a.estado].bg,color:estadoColor[a.estado].text,fontSize:11,fontFamily:"'Space Mono',monospace",whiteSpace:"nowrap"}}>
+                                  <span style={{width:5,height:5,borderRadius:"50%",background:estadoColor[a.estado].dot}}></span>
+                                  {a.estado}
+                                </span>
+                              </td>
+                              <td style={{padding:"13px 14px"}} onClick={e=>e.stopPropagation()}>
+                                <div style={{display:"flex",gap:5}}>
+                                  <button className="act-btn" onClick={()=>setModal(a)} style={{padding:"4px 9px",background:"rgba(99,102,241,0.15)",border:"1px solid rgba(99,102,241,0.3)",borderRadius:6,color:"#818cf8",cursor:"pointer",fontSize:12}}>✏️</button>
+                                  <button className="act-btn" onClick={()=>setDelId(a.id)} style={{padding:"4px 9px",background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.2)",borderRadius:6,color:"#f87171",cursor:"pointer",fontSize:12}}>🗑️</button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                    {filtered.length===0 && !loading && (
+                      <div style={{textAlign:"center",padding:"40px 24px",color:"#334155"}}>
+                        <div style={{fontSize:36,marginBottom:10}}>📭</div>
+                        <div style={{fontFamily:"'Space Mono',monospace",fontSize:13}}>No hay activos aún — crea el primero</div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
               <div style={{marginTop:12,color:"#334155",fontSize:11,fontFamily:"'Space Mono',monospace",textAlign:"right"}}>💡 Haz clic en una fila para ver detalles e historial</div>
             </>
