@@ -268,7 +268,7 @@ function exportPDF(assets) {
 // ═══════════════════════════════════════════════════════════
 //  APP PRINCIPAL
 // ═══════════════════════════════════════════════════════════
-export default function InventarioTI({ session }) {
+export default function InventarioTI({ session, perfil }) {
   const [assets,  setAssets]  = useState([]);
   const [loading, setLoading] = useState(true);
   const [search,  setSearch]  = useState("");
@@ -311,14 +311,16 @@ export default function InventarioTI({ session }) {
   // ── Crear / Editar ──
   const handleSave = async (form) => {
     const ahora = new Date().toLocaleDateString("es-CO");
-    const { data: authData } = await supabase.auth.getUser();
-    const userId = authData?.user?.id;
     if (form.id) {
       const historial = [...(form.historial||[]), { fecha:ahora, evento:`Editado: estado=${form.estado}, área=${form.area}` }];
       await supabase.from('activos').update({ ...form, historial }).eq('id', form.id);
     } else {
       const historial = [{ fecha:ahora, evento:"Activo creado" }];
-      await supabase.from('activos').insert([{ ...form, historial, user_id: userId }]);
+      await supabase.from('activos').insert([{
+        ...form, historial,
+        user_id: perfil?.tipo === 'personal' ? session.user.id : null,
+        org_id: perfil?.tipo === 'org' ? perfil?.org_id : null
+      }]);
     }
     await cargarActivos();
   };
@@ -350,7 +352,9 @@ export default function InventarioTI({ session }) {
             <div style={{width:36,height:36,borderRadius:10,background:"linear-gradient(135deg,#0ea5e9,#6366f1)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>🗄️</div>
             <div>
               <div style={{fontFamily:"'Space Mono',monospace",fontSize:15,fontWeight:700,color:"#e2e8f0"}}>AssetTracker TI</div>
-              <div style={{fontSize:11,color:"#475569",fontFamily:"'Space Mono',monospace"}}>v3.0 — con Supabase</div>
+              <div style={{fontSize:11,color:"#475569",fontFamily:"'Space Mono',monospace"}}>
+                {perfil?.tipo === 'org' ? "🏢 " + perfil?.organizaciones?.nombre + " · Código: " + perfil?.organizaciones?.codigo : "👤 Uso Personal"}
+              </div>
             </div>
           </div>
           <div style={{display:"flex",gap:10,alignItems:"center"}}>
