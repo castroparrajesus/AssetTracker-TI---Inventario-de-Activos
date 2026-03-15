@@ -1,23 +1,19 @@
 // ============================================================
-//  AssetTracker TI — Semana 3
-//  ✅ Supabase conectado (base de datos real)
-//  ✅ Gráficas con Recharts
-//  ✅ Exportar Excel y PDF
-//  ✅ Historial de cambios
-//  ✅ Alertas de mantenimiento
+//  AssetTracker TI — con Roles (Admin, Técnico, Viewer)
 // ============================================================
 
 import { useState, useMemo, useEffect } from "react";
 import { supabase } from "./supabase";
-
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from "recharts";
 
 const TIPOS   = ["Laptop","Desktop","Servidor","Switch","Router","Impresora","Monitor","UPS","Teléfono IP","Otro"];
 const ESTADOS = ["Activo","En mantenimiento","Dado de baja","En bodega"];
 const AREAS   = ["TI","Gerencia","RRHH","Contabilidad","Operaciones","Seguridad","Infraestructura"];
-
 const PIE_COLORS = ["#22c55e","#fbbf24","#ef4444","#94a3b8"];
 const BAR_COLORS = ["#0ea5e9","#6366f1","#f59e0b","#10b981","#f43f5e","#a78bfa","#34d399","#fb923c","#38bdf8","#e879f9"];
+
+const rolColor = { admin:"#22c55e", tecnico:"#0ea5e9", viewer:"#94a3b8" };
+const rolLabel = { admin:"👑 Admin", tecnico:"🔧 Técnico", viewer:"👁 Viewer" };
 
 const estadoColor = {
   "Activo":           { bg:"rgba(34,197,94,0.15)",  text:"#22c55e", dot:"#22c55e" },
@@ -176,6 +172,67 @@ function DetailModal({ asset, onClose }) {
 }
 
 // ═══════════════════════════════════════════════════════════
+//  MODAL GESTIONAR USUARIOS (solo Admin)
+// ═══════════════════════════════════════════════════════════
+function UsersModal({ perfil, onClose }) {
+  const [miembros, setMiembros] = useState([]);
+  const [loading, setLoading]   = useState(true);
+
+  useEffect(() => {
+    async function cargar() {
+      const { data } = await supabase
+        .from('miembros')
+        .select('id, user_id, rol, created_at')
+        .eq('org_id', perfil.org_id);
+      setMiembros(data || []);
+      setLoading(false);
+    }
+    cargar();
+  }, []);
+
+  const cambiarRol = async (miembroId, nuevoRol) => {
+    await supabase.from('miembros').update({ rol: nuevoRol }).eq('id', miembroId);
+    setMiembros(prev => prev.map(m => m.id === miembroId ? {...m, rol: nuevoRol} : m));
+  };
+
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:200,backdropFilter:"blur(4px)"}}>
+      <div style={{background:"#0f172a",border:"1px solid #1e3a5f",borderRadius:16,padding:32,width:"min(560px,95vw)",maxHeight:"90vh",overflowY:"auto",boxShadow:"0 25px 60px rgba(0,0,0,0.6)"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:24}}>
+          <h2 style={{color:"#e2e8f0",fontFamily:"'Space Mono',monospace",fontSize:17,margin:0}}>👥 Gestionar Usuarios</h2>
+          <button onClick={onClose} style={{background:"none",border:"none",color:"#64748b",cursor:"pointer",fontSize:20}}>✕</button>
+        </div>
+
+        <div style={{background:"rgba(14,165,233,0.08)",border:"1px solid rgba(14,165,233,0.15)",borderRadius:10,padding:"10px 14px",marginBottom:20,color:"#64748b",fontSize:12,fontFamily:"'Space Mono',monospace"}}>
+          Código de invitación: <span style={{color:"#0ea5e9",fontWeight:700,letterSpacing:2}}>{perfil?.organizaciones?.codigo}</span>
+        </div>
+
+        {loading ? (
+          <div style={{textAlign:"center",padding:24,color:"#334155",fontFamily:"'Space Mono',monospace",fontSize:13}}>Cargando...</div>
+        ) : (
+          <div style={{display:"flex",flexDirection:"column",gap:10}}>
+            {miembros.map(m => (
+              <div key={m.id} style={{background:"#1e293b",borderRadius:10,padding:"12px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div>
+                  <div style={{color:"#94a3b8",fontSize:12,fontFamily:"'Space Mono',monospace"}}>{m.user_id.substring(0,12)}...</div>
+                  <div style={{color:"#475569",fontSize:11,marginTop:2}}>Unido: {new Date(m.created_at).toLocaleDateString('es-CO')}</div>
+                </div>
+                <select value={m.rol} onChange={e=>cambiarRol(m.id, e.target.value)}
+                  style={{background:"#0f172a",border:"1px solid #334155",borderRadius:8,padding:"6px 10px",color:rolColor[m.rol]||"#94a3b8",fontSize:12,outline:"none",cursor:"pointer",fontFamily:"'Space Mono',monospace"}}>
+                  <option value="admin">👑 Admin</option>
+                  <option value="tecnico">🔧 Técnico</option>
+                  <option value="viewer">👁 Viewer</option>
+                </select>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
 //  PANEL DE GRÁFICAS
 // ═══════════════════════════════════════════════════════════
 function ChartsPanel({ assets }) {
@@ -183,7 +240,6 @@ function ChartsPanel({ assets }) {
   const byTipo   = Object.entries(assets.reduce((acc,a)=>({...acc,[a.tipo]:(acc[a.tipo]||0)+1}),{})).map(([name,value])=>({name,value})).sort((a,b)=>b.value-a.value);
   const byArea   = Object.entries(assets.reduce((acc,a)=>({...acc,[a.area]:(acc[a.area]||0)+1}),{})).map(([name,value])=>({name,value})).sort((a,b)=>b.value-a.value);
   const cardStyle = { background:"#0f172a", border:"1px solid #1e293b", borderRadius:14, padding:"20px 16px" };
-
   return (
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:16,marginBottom:28}}>
       <div style={cardStyle}>
@@ -228,17 +284,12 @@ function ChartsPanel({ assets }) {
   );
 }
 
-// ═══════════════════════════════════════════════════════════
-//  EXPORTAR
-// ═══════════════════════════════════════════════════════════
 function exportExcel(assets) {
   import('xlsx').then(XLSX => {
     const ws = XLSX.utils.json_to_sheet(assets.map(a => ({
-      Nombre: a.nombre, Tipo: a.tipo, Serial: a.serial,
-      Marca: a.marca, Modelo: a.modelo, Area: a.area,
-      Responsable: a.responsable, Estado: a.estado,
-      IP: a.ip, SO: a.so, Ingreso: a.fecha_ingreso,
-      "Últ. Mantenimiento": a.ultimo_mantenimiento, Notas: a.notas
+      Nombre: a.nombre, Tipo: a.tipo, Serial: a.serial, Marca: a.marca, Modelo: a.modelo,
+      Area: a.area, Responsable: a.responsable, Estado: a.estado, IP: a.ip, SO: a.so,
+      Ingreso: a.fecha_ingreso, "Últ. Mantenimiento": a.ultimo_mantenimiento, Notas: a.notas
     })))
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, "Inventario")
@@ -269,21 +320,23 @@ function exportPDF(assets) {
 //  APP PRINCIPAL
 // ═══════════════════════════════════════════════════════════
 export default function InventarioTI({ session, perfil }) {
-  const [assets,  setAssets]  = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [search,  setSearch]  = useState("");
-  const [filterT, setFilterT] = useState("Todos");
-  const [filterE, setFilterE] = useState("Todos");
-  const [filterA, setFilterA] = useState("Todas");
-  const [modal,   setModal]   = useState(null);
-  const [detail,  setDetail]  = useState(null);
-  const [delId,   setDelId]   = useState(null);
-  const [tab,     setTab]     = useState("tabla");
+  const [assets,    setAssets]    = useState([]);
+  const [loading,   setLoading]   = useState(true);
+  const [search,    setSearch]    = useState("");
+  const [filterT,   setFilterT]   = useState("Todos");
+  const [filterE,   setFilterE]   = useState("Todos");
+  const [filterA,   setFilterA]   = useState("Todas");
+  const [modal,     setModal]     = useState(null);
+  const [detail,    setDetail]    = useState(null);
+  const [delId,     setDelId]     = useState(null);
+  const [tab,       setTab]       = useState("tabla");
+  const [usersModal,setUsersModal]= useState(false);
 
-  // ── Cargar activos desde Supabase ──
-  useEffect(() => {
-    cargarActivos();
-  }, []);
+  const rol = perfil?.rol || 'viewer';
+  const esAdmin   = rol === 'admin';
+  const esTecnico = rol === 'tecnico' || esAdmin;
+
+  useEffect(() => { cargarActivos(); }, []);
 
   async function cargarActivos() {
     setLoading(true);
@@ -308,7 +361,6 @@ export default function InventarioTI({ session, perfil }) {
     alertas: assets.filter(a=>diasDesdeMantenimiento(a.ultimo_mantenimiento)>180 && a.estado==="Activo").length,
   }), [assets]);
 
-  // ── Crear / Editar ──
   const handleSave = async (form) => {
     const ahora = new Date().toLocaleDateString("es-CO");
     if (form.id) {
@@ -319,13 +371,12 @@ export default function InventarioTI({ session, perfil }) {
       await supabase.from('activos').insert([{
         ...form, historial,
         user_id: perfil?.tipo === 'personal' ? session.user.id : null,
-        org_id: perfil?.tipo === 'org' ? perfil?.org_id : null
+        org_id:  perfil?.tipo === 'org' ? perfil?.org_id : null
       }]);
     }
     await cargarActivos();
   };
 
-  // ── Eliminar ──
   const handleDelete = async (id) => {
     await supabase.from('activos').delete().eq('id', id);
     setDelId(null);
@@ -358,9 +409,19 @@ export default function InventarioTI({ session, perfil }) {
             </div>
           </div>
           <div style={{display:"flex",gap:10,alignItems:"center"}}>
+            {/* Badge de rol */}
+            <span style={{padding:"5px 10px",borderRadius:20,background:"rgba(14,165,233,0.1)",border:"1px solid rgba(14,165,233,0.2)",color:rolColor[rol]||"#94a3b8",fontSize:11,fontFamily:"'Space Mono',monospace"}}>
+              {rolLabel[rol]||rol}
+            </span>
+            {/* Botón gestionar usuarios (solo admin en org) */}
+            {esAdmin && perfil?.tipo === 'org' && (
+              <button onClick={()=>setUsersModal(true)} style={{padding:"8px 14px",background:"rgba(255,255,255,0.05)",border:"1px solid #334155",borderRadius:9,color:"#94a3b8",cursor:"pointer",fontFamily:"'Space Mono',monospace",fontSize:12}}>👥 Usuarios</button>
+            )}
             <button className="exp-btn" onClick={()=>exportExcel(assets)} style={{display:"flex",alignItems:"center",gap:6,padding:"8px 14px",background:"rgba(255,255,255,0.05)",border:"1px solid #334155",borderRadius:9,color:"#94a3b8",cursor:"pointer",fontFamily:"'Space Mono',monospace",fontSize:12}}>📊 Excel</button>
             <button className="exp-btn" onClick={()=>exportPDF(assets)}   style={{display:"flex",alignItems:"center",gap:6,padding:"8px 14px",background:"rgba(255,255,255,0.05)",border:"1px solid #334155",borderRadius:9,color:"#94a3b8",cursor:"pointer",fontFamily:"'Space Mono',monospace",fontSize:12}}>📄 PDF</button>
-            <button onClick={()=>setModal("create")} style={{display:"flex",alignItems:"center",gap:6,padding:"9px 18px",background:"linear-gradient(135deg,#0ea5e9,#6366f1)",border:"none",borderRadius:10,color:"#fff",cursor:"pointer",fontFamily:"'Space Mono',monospace",fontSize:13,fontWeight:700,boxShadow:"0 4px 15px rgba(14,165,233,0.3)"}}>+ Nuevo</button>
+            {esTecnico && (
+              <button onClick={()=>setModal("create")} style={{display:"flex",alignItems:"center",gap:6,padding:"9px 18px",background:"linear-gradient(135deg,#0ea5e9,#6366f1)",border:"none",borderRadius:10,color:"#fff",cursor:"pointer",fontFamily:"'Space Mono',monospace",fontSize:13,fontWeight:700,boxShadow:"0 4px 15px rgba(14,165,233,0.3)"}}>+ Nuevo</button>
+            )}
             <button onClick={()=>supabase.auth.signOut()} style={{padding:"9px 14px",background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.2)",borderRadius:10,color:"#f87171",cursor:"pointer",fontFamily:"'Space Mono',monospace",fontSize:12}}>Salir</button>
           </div>
         </div>
@@ -463,8 +524,12 @@ export default function InventarioTI({ session, perfil }) {
                               </td>
                               <td style={{padding:"13px 14px"}} onClick={e=>e.stopPropagation()}>
                                 <div style={{display:"flex",gap:5}}>
-                                  <button className="act-btn" onClick={()=>setModal(a)} style={{padding:"4px 9px",background:"rgba(99,102,241,0.15)",border:"1px solid rgba(99,102,241,0.3)",borderRadius:6,color:"#818cf8",cursor:"pointer",fontSize:12}}>✏️</button>
-                                  <button className="act-btn" onClick={()=>setDelId(a.id)} style={{padding:"4px 9px",background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.2)",borderRadius:6,color:"#f87171",cursor:"pointer",fontSize:12}}>🗑️</button>
+                                  {esTecnico && (
+                                    <button className="act-btn" onClick={()=>setModal(a)} style={{padding:"4px 9px",background:"rgba(99,102,241,0.15)",border:"1px solid rgba(99,102,241,0.3)",borderRadius:6,color:"#818cf8",cursor:"pointer",fontSize:12}}>✏️</button>
+                                  )}
+                                  {esAdmin && (
+                                    <button className="act-btn" onClick={()=>setDelId(a.id)} style={{padding:"4px 9px",background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.2)",borderRadius:6,color:"#f87171",cursor:"pointer",fontSize:12}}>🗑️</button>
+                                  )}
                                 </div>
                               </td>
                             </tr>
@@ -490,6 +555,7 @@ export default function InventarioTI({ session, perfil }) {
       {/* MODALS */}
       {(modal==="create"||(modal&&modal.id)) && <FormModal asset={modal==="create"?null:modal} onClose={()=>setModal(null)} onSave={handleSave}/>}
       {detail && <DetailModal asset={detail} onClose={()=>setDetail(null)}/>}
+      {usersModal && <UsersModal perfil={perfil} onClose={()=>setUsersModal(false)}/>}
       {delId && (
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:200}}>
           <div style={{background:"#0f172a",border:"1px solid rgba(239,68,68,0.3)",borderRadius:16,padding:32,textAlign:"center",maxWidth:340}}>

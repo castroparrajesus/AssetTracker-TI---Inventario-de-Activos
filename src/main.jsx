@@ -6,9 +6,9 @@ import Login from './Login.jsx'
 import Setup from './Setup.jsx'
 
 function Root() {
-  const [session, setSession]   = useState(null)
-  const [perfil, setPerfil]     = useState(null)
-  const [loading, setLoading]   = useState(true)
+  const [session, setSession] = useState(null)
+  const [perfil, setPerfil]   = useState(null)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -33,7 +33,22 @@ function Root() {
       .select('*, organizaciones(id, nombre, codigo)')
       .eq('id', userId)
       .maybeSingle()
-    if (data) setPerfil(data)
+
+    if (data) {
+      // Si es org, cargar el rol del usuario
+      if (data.tipo === 'org' && data.org_id) {
+        const { data: miembro } = await supabase
+          .from('miembros')
+          .select('rol')
+          .eq('user_id', userId)
+          .eq('org_id', data.org_id)
+          .maybeSingle()
+        data.rol = miembro?.rol || 'viewer'
+      } else {
+        data.rol = 'admin' // personal siempre es admin de su propio inventario
+      }
+      setPerfil(data)
+    }
     setLoading(false)
   }
 
