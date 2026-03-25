@@ -4,6 +4,7 @@
 
 import { useState, useMemo, useEffect } from "react";
 import { supabase } from "./supabase";
+import Tickets from "./Tickets.jsx";
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from "recharts";
 
 const TIPOS   = ["Laptop","Desktop","Servidor","Switch","Router","Impresora","Monitor","UPS","Teléfono IP","Otro"];
@@ -450,14 +451,16 @@ export default function InventarioTI({ session, perfil }) {
 
           {/* TABS */}
           <div style={{display:"flex",gap:4,marginBottom:20,background:"#0f172a",borderRadius:10,padding:4,border:"1px solid #1e293b",width:"fit-content"}}>
-            {[["tabla","📋 Inventario"],["graficas","📊 Gráficas"]].map(([t,label])=>(
+            {[["tabla","📋 Inventario"],["graficas","📊 Gráficas"],["tickets","🎫 Tickets"]].map(([t,label])=>(
               <button key={t} className="tab-btn" onClick={()=>setTab(t)} style={{padding:"8px 18px",borderRadius:7,border:"none",cursor:"pointer",fontFamily:"'Space Mono',monospace",fontSize:12,fontWeight:700,background:tab===t?"linear-gradient(135deg,#0ea5e9,#6366f1)":"transparent",color:tab===t?"#fff":"#475569"}}>
                 {label}
               </button>
             ))}
           </div>
 
-          {tab === "graficas" && <ChartsPanel assets={assets}/>}
+          {tab === "graficas" && <ChartsPanel assets={assets}/> }
+
+          {tab === "tickets" && <Tickets session={session} perfil={perfil} activos={assets}/>}
 
           {tab === "tabla" && (
             <>
