@@ -25,15 +25,16 @@ export default function Login() {
   };
 
   const handleGoogle = async () => {
-  setLoadingGoogle(true);
-  await supabase.auth.signInWithOAuth({
-    provider: 'google',
-    options: { 
-      redirectTo: 'https://assettracker-ti.vercel.app'
-    }
-  });
-  setLoadingGoogle(false);
-};
+    setLoadingGoogle(true);
+    setError("");
+    const redirectTo = typeof window !== 'undefined' ? window.location.origin : undefined;
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo }
+    });
+    if (error) setError("Error al iniciar con Google: " + error.message);
+    setLoadingGoogle(false);
+  };
 
   const usarDemo = () => {
     setEmail("demo@assettracker.com");

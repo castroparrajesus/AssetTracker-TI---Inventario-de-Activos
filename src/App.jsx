@@ -7,14 +7,30 @@ import { supabase } from "./supabase";
 import Tickets from "./Tickets.jsx";
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from "recharts";
 
-const TIPOS   = ["Laptop","Desktop","Servidor","Switch","Router","Impresora","Monitor","UPS","Teléfono IP","Otro"];
-const ESTADOS = ["Activo","En mantenimiento","Dado de baja","En bodega"];
+const TIPOS   = ["Equipo","Monitor","Impresora","Servidor","Dispositivo de red","Licencia de software","Consumible","Otro"];
+const ESTADOS = ["Activo","En mantenimiento","Dado de baja","En bodega","Prestado"];
 const AREAS   = ["TI","Gerencia","RRHH","Contabilidad","Operaciones","Seguridad","Infraestructura"];
+const SUBTIPOS = {
+  Equipo: ["Laptop","Desktop","Tablet","All-in-one"],
+  Monitor: ["LED","LCD","4K","Curvo"],
+  Impresora: ["Laser","Tinta","Multifuncional"],
+  Servidor: ["Rack","Tower","Virtual"],
+  "Dispositivo de red": ["Switch","Router","Access Point","Firewall"],
+  "Licencia de software": ["Office","Antivirus","Sistema","Herramienta"],
+  Consumible: ["Toner","Cartucho","Cable","Batería"]
+};
 const PIE_COLORS = ["#22c55e","#fbbf24","#ef4444","#94a3b8"];
 const BAR_COLORS = ["#0ea5e9","#6366f1","#f59e0b","#10b981","#f43f5e","#a78bfa","#34d399","#fb923c","#38bdf8","#e879f9"];
 
-const rolColor = { admin:"#22c55e", tecnico:"#0ea5e9", viewer:"#94a3b8" };
-const rolLabel = { admin:"👑 Admin", tecnico:"🔧 Técnico", viewer:"👁 Viewer" };
+const normalizeRole = (role) => {
+  const value = String(role || "").toLowerCase();
+  if (["super_admin", "super-admin", "superadmin"].includes(value)) return "super_admin";
+  if (["admin", "tecnico", "manager"].includes(value)) return "admin";
+  return "user";
+};
+
+const rolColor = { super_admin:"#f59e0b", admin:"#22c55e", user:"#94a3b8" };
+const rolLabel = { super_admin:"👑 Super Admin", admin:"🛡️ Admin", user:"👤 Usuario" };
 
 const estadoColor = {
   "Activo":           { bg:"rgba(34,197,94,0.15)",  text:"#22c55e", dot:"#22c55e" },
@@ -44,21 +60,36 @@ const S = {
 // ═══════════════════════════════════════════════════════════
 function FormModal({ asset, onClose, onSave }) {
   const [form, setForm] = useState(asset || {
-    nombre:"", tipo:"Laptop", serial:"", marca:"", modelo:"",
-    area:"TI", responsable:"", estado:"Activo",
+    nombre:"", tipo:"Equipo", subtipo:"Laptop", codigo_interno:"", serial:"", marca:"", modelo:"",
+    area:"TI", responsable:"", usuario_asignado:"", estado:"Activo",
     fecha_ingreso: new Date().toISOString().split("T")[0],
     ultimo_mantenimiento: new Date().toISOString().split("T")[0],
-    ip:"", so:"", notas:"", historial:[]
+    garantia:"", ubicacion:"", ip:"", so:"", factura:"", notas:"", historial:[], fotos:[]
   });
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
   const set = (k,v) => setForm(f => ({...f,[k]:v}));
 
   const handleSave = async () => {
-    if (!form.nombre) return;
+    if (!form.nombre) {
+      setError("El nombre del activo es obligatorio.");
+      return;
+    }
     setLoading(true);
-    await onSave(form);
-    setLoading(false);
-    onClose();
+    setError("");
+    try {
+      const result = await onSave(form);
+      if (result) {
+        setError(result);
+        setLoading(false);
+        return;
+      }
+      onClose();
+    } catch (err) {
+      setError(err?.message || "Error al guardar el activo.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -71,10 +102,15 @@ function FormModal({ asset, onClose, onSave }) {
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
           {[
             {label:"Nombre *",key:"nombre",full:true},
-            {label:"Serial / Código",key:"serial"},
+            {label:"Código interno",key:"codigo_interno"},
+            {label:"Serial / Número de serie",key:"serial"},
             {label:"Marca",key:"marca"},
             {label:"Modelo",key:"modelo"},
             {label:"Responsable",key:"responsable"},
+            {label:"Usuario asignado",key:"usuario_asignado"},
+            {label:"Ubicación",key:"ubicacion"},
+            {label:"Garantía",key:"garantia"},
+            {label:"Factura",key:"factura"},
             {label:"Dirección IP",key:"ip"},
             {label:"Sistema Operativo",key:"so"},
             {label:"Fecha de Ingreso",key:"fecha_ingreso",type:"date"},
@@ -93,11 +129,24 @@ function FormModal({ asset, onClose, onSave }) {
               </select>
             </div>
           ))}
+          <div>
+            <label style={S.label}>Subtipo</label>
+            <select value={form.subtipo || ""} onChange={e=>set("subtipo",e.target.value)} style={{...S.select,width:"100%"}}>
+              {(SUBTIPOS[form.tipo] || ["Otro"]).map(o=><option key={o}>{o}</option>)}
+            </select>
+          </div>
           <div style={{gridColumn:"1/-1"}}>
             <label style={S.label}>Notas</label>
             <textarea value={form.notas} onChange={e=>set("notas",e.target.value)} rows={3} style={{...S.input,resize:"vertical"}}/>
           </div>
+          <div style={{gridColumn:"1/-1"}}>
+            <label style={S.label}>Enlace o referencia de fotos / documentos</label>
+            <input value={form.fotos?.join("; ") || ""} onChange={e=>set("fotos", e.target.value.split(";").map(x=>x.trim()).filter(Boolean))} style={S.input} />
+          </div>
         </div>
+        {error && (
+          <div style={{marginBottom:14,padding:"10px 14px",borderRadius:10,background:"rgba(239,68,68,0.12)",border:"1px solid rgba(239,68,68,0.25)",color:"#f87171",fontSize:13,fontFamily:"'Space Mono',monospace"}}>{error}</div>
+        )}
         <div style={{display:"flex",gap:12,marginTop:24,justifyContent:"flex-end"}}>
           <button onClick={onClose} style={{padding:"10px 20px",background:"transparent",border:"1px solid #334155",borderRadius:8,color:"#94a3b8",cursor:"pointer",fontFamily:"'Space Mono',monospace",fontSize:13}}>Cancelar</button>
           <button onClick={handleSave} disabled={loading} style={{padding:"10px 24px",background:"linear-gradient(135deg,#0ea5e9,#6366f1)",border:"none",borderRadius:8,color:"#fff",cursor:"pointer",fontFamily:"'Space Mono',monospace",fontSize:13,fontWeight:700,opacity:loading?0.7:1}}>
@@ -133,8 +182,9 @@ function DetailModal({ asset, onClose }) {
           </div>
         )}
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-          {[["Tipo",asset.tipo],["Área",asset.area],["Marca",asset.marca],["Modelo",asset.modelo],
-            ["Responsable",asset.responsable],["IP",asset.ip],["SO",asset.so],
+          {[["Tipo",asset.tipo],["Subtipo",asset.subtipo],["Área",asset.area],["Marca",asset.marca],["Modelo",asset.modelo],
+            ["Código interno",asset.codigo_interno],["Serial",asset.serial],["Responsable",asset.responsable],["Usuario asignado",asset.usuario_asignado],
+            ["Ubicación",asset.ubicacion],["Garantía",asset.garantia],["Factura",asset.factura],["IP",asset.ip],["SO",asset.so],
             ["Ingreso",asset.fecha_ingreso],["Últ. Mantenimiento",asset.ultimo_mantenimiento]].map(([k,v])=>(
             <div key={k} style={{background:"#1e293b",borderRadius:10,padding:"10px 14px"}}>
               <div style={{color:"#475569",fontSize:10,fontFamily:"'Space Mono',monospace",textTransform:"uppercase",letterSpacing:1,marginBottom:3}}>{k}</div>
@@ -146,6 +196,12 @@ function DetailModal({ asset, onClose }) {
           <div style={{marginTop:10,background:"#1e293b",borderRadius:10,padding:"10px 14px"}}>
             <div style={{color:"#475569",fontSize:10,fontFamily:"'Space Mono',monospace",textTransform:"uppercase",letterSpacing:1,marginBottom:3}}>Notas</div>
             <div style={{color:"#cbd5e1",fontSize:13}}>{asset.notas}</div>
+          </div>
+        )}
+        {asset.fotos && asset.fotos.length > 0 && (
+          <div style={{marginTop:10,background:"#1e293b",borderRadius:10,padding:"10px 14px"}}>
+            <div style={{color:"#475569",fontSize:10,fontFamily:"'Space Mono',monospace",textTransform:"uppercase",letterSpacing:1,marginBottom:3}}>Fotos / Documentos</div>
+            <div style={{color:"#7dd3fc",fontSize:13}}>{asset.fotos.join(" • ")}</div>
           </div>
         )}
         {asset.historial && asset.historial.length > 0 && (
@@ -218,11 +274,11 @@ function UsersModal({ perfil, onClose }) {
                   <div style={{color:"#94a3b8",fontSize:12,fontFamily:"'Space Mono',monospace"}}>{m.user_id.substring(0,12)}...</div>
                   <div style={{color:"#475569",fontSize:11,marginTop:2}}>Unido: {new Date(m.created_at).toLocaleDateString('es-CO')}</div>
                 </div>
-                <select value={m.rol} onChange={e=>cambiarRol(m.id, e.target.value)}
-                  style={{background:"#0f172a",border:"1px solid #334155",borderRadius:8,padding:"6px 10px",color:rolColor[m.rol]||"#94a3b8",fontSize:12,outline:"none",cursor:"pointer",fontFamily:"'Space Mono',monospace"}}>
-                  <option value="admin">👑 Admin</option>
-                  <option value="tecnico">🔧 Técnico</option>
-                  <option value="viewer">👁 Viewer</option>
+                <select value={normalizeRole(m.rol)} onChange={e=>cambiarRol(m.id, e.target.value)}
+                  style={{background:"#0f172a",border:"1px solid #334155",borderRadius:8,padding:"6px 10px",color:rolColor[normalizeRole(m.rol)]||"#94a3b8",fontSize:12,outline:"none",cursor:"pointer",fontFamily:"'Space Mono',monospace"}}>
+                  <option value="super_admin">👑 Super Admin</option>
+                  <option value="admin">🛡️ Admin</option>
+                  <option value="user">👤 Usuario</option>
                 </select>
               </div>
             ))}
@@ -317,6 +373,365 @@ function exportPDF(assets) {
   })
 }
 
+function MaintenancePanel({ assets }) {
+  const [entries, setEntries] = useState([
+    { id: 1, activo: assets[0]?.nombre || "Sin activo", tipo: "Preventivo", fecha: new Date().toISOString().split('T')[0], descripcion: "Limpieza y revisión general", costo: "0", repuestos: "N/A", recordatorio: "7 días" }
+  ]);
+
+  const agregarEntrada = () => {
+    setEntries(prev => [...prev, { id: Date.now(), activo: assets[0]?.nombre || "Sin activo", tipo: "Correctivo", fecha: new Date().toISOString().split('T')[0], descripcion: "", costo: "", repuestos: "", recordatorio: "" }]);
+  };
+
+  return (
+    <div style={{background:'#0f172a',border:'1px solid #1e293b',borderRadius:14,padding:20}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
+        <div>
+          <div style={{color:'#e2e8f0',fontFamily:"'Space Mono',monospace",fontSize:15,fontWeight:700}}>🛠️ Gestión de mantenimiento</div>
+          <div style={{color:'#64748b',fontSize:12,marginTop:4}}>Preventivos, correctivos, costos, repuestos y recordatorios</div>
+        </div>
+        <button onClick={agregarEntrada} style={{padding:'8px 14px',background:'linear-gradient(135deg,#0ea5e9,#6366f1)',border:'none',borderRadius:8,color:'#fff',cursor:'pointer',fontFamily:"'Space Mono',monospace",fontSize:12,fontWeight:700}}>+ Agregar</button>
+      </div>
+      <div style={{display:'flex',flexDirection:'column',gap:12}}>
+        {entries.map((entry, index) => (
+          <div key={entry.id} style={{background:'#111d2e',border:'1px solid #1e293b',borderRadius:12,padding:14}}>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10}}>
+              <div>
+                <label style={S.label}>Activo</label>
+                <select value={entry.activo} onChange={e=>setEntries(prev=>prev.map((item,i)=>i===index?{...item,activo:e.target.value}:item))} style={S.select}>
+                  {assets.map(a => <option key={a.id}>{a.nombre}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={S.label}>Tipo</label>
+                <select value={entry.tipo} onChange={e=>setEntries(prev=>prev.map((item,i)=>i===index?{...item,tipo:e.target.value}:item))} style={S.select}>
+                  <option>Preventivo</option>
+                  <option>Correctivo</option>
+                </select>
+              </div>
+              <div>
+                <label style={S.label}>Fecha</label>
+                <input type="date" value={entry.fecha} onChange={e=>setEntries(prev=>prev.map((item,i)=>i===index?{...item,fecha:e.target.value}:item))} style={S.input} />
+              </div>
+              <div>
+                <label style={S.label}>Recordatorio</label>
+                <input value={entry.recordatorio} onChange={e=>setEntries(prev=>prev.map((item,i)=>i===index?{...item,recordatorio:e.target.value}:item))} style={S.input} />
+              </div>
+            </div>
+            <div style={{display:'grid',gridTemplateColumns:'1.5fr 1fr 1fr',gap:10,marginTop:10}}>
+              <div>
+                <label style={S.label}>Descripción</label>
+                <input value={entry.descripcion} onChange={e=>setEntries(prev=>prev.map((item,i)=>i===index?{...item,descripcion:e.target.value}:item))} style={S.input} />
+              </div>
+              <div>
+                <label style={S.label}>Costo</label>
+                <input value={entry.costo} onChange={e=>setEntries(prev=>prev.map((item,i)=>i===index?{...item,costo:e.target.value}:item))} style={S.input} />
+              </div>
+              <div>
+                <label style={S.label}>Repuestos</label>
+                <input value={entry.repuestos} onChange={e=>setEntries(prev=>prev.map((item,i)=>i===index?{...item,repuestos:e.target.value}:item))} style={S.input} />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CMDBPanel() {
+  const [items, setItems] = useState([
+    { id: 1, tipo: "Servidor", nombre: "DC-01", estado: "Operativo", owner: "Infraestructura" },
+    { id: 2, tipo: "Switch", nombre: "SW-CORE", estado: "Operativo", owner: "Red" },
+    { id: 3, tipo: "Aplicación", nombre: "Help Desk", estado: "En soporte", owner: "TI" },
+    { id: 4, tipo: "Base de datos", nombre: "ERP-DB", estado: "Operativo", owner: "Datos" }
+  ]);
+  const [dependencies, setDependencies] = useState([
+    { id: 1, origen: "DC-01", destino: "SW-CORE", tipo: "Conecta" },
+    { id: 2, origen: "Help Desk", destino: "ERP-DB", tipo: "Consume" }
+  ]);
+  const [form, setForm] = useState({ tipo: "Servidor", nombre: "", estado: "Operativo", owner: "TI" });
+  const [depForm, setDepForm] = useState({ origen: "DC-01", destino: "SW-CORE", tipo: "Depende de" });
+
+  const agregarItem = () => {
+    if (!form.nombre.trim()) return;
+    setItems(prev => [...prev, { id: Date.now(), ...form, nombre: form.nombre.trim() }]);
+    setForm({ tipo: "Servidor", nombre: "", estado: "Operativo", owner: "TI" });
+  };
+
+  const agregarDependencia = () => {
+    if (!depForm.origen || !depForm.destino) return;
+    setDependencies(prev => [...prev, { id: Date.now(), ...depForm }]);
+    setDepForm({ origen: depForm.destino, destino: depForm.origen, tipo: "Depende de" });
+  };
+
+  return (
+    <div style={{background:'#0f172a',border:'1px solid #1e293b',borderRadius:14,padding:20,display:'flex',flexDirection:'column',gap:16}}>
+      <div>
+        <div style={{color:'#e2e8f0',fontFamily:"'Space Mono',monospace",fontSize:15,fontWeight:700}}>🗂️ CMDB</div>
+        <div style={{color:'#64748b',fontSize:12,marginTop:4}}>Catálogo de servidores, switches, routers, máquinas virtuales, aplicaciones, bases de datos y sus dependencias.</div>
+      </div>
+
+      <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10}}>
+        {items.map(item => (
+          <div key={item.id} style={{background:'#111d2e',border:'1px solid #1e293b',borderRadius:12,padding:12}}>
+            <div style={{color:'#0ea5e9',fontSize:11,fontFamily:"'Space Mono',monospace",textTransform:'uppercase',marginBottom:6}}>{item.tipo}</div>
+            <div style={{color:'#e2e8f0',fontSize:14,fontWeight:700}}>{item.nombre}</div>
+            <div style={{color:'#64748b',fontSize:12,marginTop:4}}>Estado: {item.estado}</div>
+            <div style={{color:'#64748b',fontSize:12}}>Owner: {item.owner}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10}}>
+        <div>
+          <label style={S.label}>Tipo</label>
+          <select value={form.tipo} onChange={e=>setForm(prev=>({...prev,tipo:e.target.value}))} style={S.select}>
+            {['Servidor','Switch','Router','Máquina virtual','Aplicación','Base de datos'].map(option => <option key={option}>{option}</option>)}
+          </select>
+        </div>
+        <div>
+          <label style={S.label}>Nombre</label>
+          <input value={form.nombre} onChange={e=>setForm(prev=>({...prev,nombre:e.target.value}))} style={S.input} />
+        </div>
+        <div>
+          <label style={S.label}>Estado</label>
+          <select value={form.estado} onChange={e=>setForm(prev=>({...prev,estado:e.target.value}))} style={S.select}>
+            {['Operativo','En mantenimiento','En prueba','Caído'].map(option => <option key={option}>{option}</option>)}
+          </select>
+        </div>
+        <div>
+          <label style={S.label}>Owner</label>
+          <input value={form.owner} onChange={e=>setForm(prev=>({...prev,owner:e.target.value}))} style={S.input} />
+        </div>
+      </div>
+      <button onClick={agregarItem} style={{alignSelf:'flex-start',padding:'8px 14px',background:'linear-gradient(135deg,#0ea5e9,#6366f1)',border:'none',borderRadius:8,color:'#fff',cursor:'pointer',fontFamily:"'Space Mono',monospace",fontSize:12,fontWeight:700}}>+ Añadir elemento</button>
+
+      <div style={{background:'#111d2e',border:'1px solid #1e293b',borderRadius:12,padding:14}}>
+        <div style={{color:'#e2e8f0',fontFamily:"'Space Mono',monospace",fontSize:14,fontWeight:700,marginBottom:10}}>🔗 Dependencias</div>
+        <div style={{display:'flex',flexDirection:'column',gap:8}}>
+          {dependencies.map(dep => (
+            <div key={dep.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',background:'#0f172a',border:'1px solid #1e293b',borderRadius:8,padding:'8px 10px'}}>
+              <span style={{color:'#cbd5e1',fontSize:13}}>{dep.origen} <span style={{color:'#0ea5e9'}}>→</span> {dep.destino}</span>
+              <span style={{color:'#64748b',fontSize:12,fontFamily:"'Space Mono',monospace"}}>{dep.tipo}</span>
+            </div>
+          ))}
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10,marginTop:12}}>
+          <div>
+            <label style={S.label}>Origen</label>
+            <select value={depForm.origen} onChange={e=>setDepForm(prev=>({...prev,origen:e.target.value}))} style={S.select}>
+              {items.map(item => <option key={item.id}>{item.nombre}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={S.label}>Destino</label>
+            <select value={depForm.destino} onChange={e=>setDepForm(prev=>({...prev,destino:e.target.value}))} style={S.select}>
+              {items.map(item => <option key={item.id}>{item.nombre}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={S.label}>Tipo</label>
+            <input value={depForm.tipo} onChange={e=>setDepForm(prev=>({...prev,tipo:e.target.value}))} style={S.input} />
+          </div>
+        </div>
+        <button onClick={agregarDependencia} style={{marginTop:10,padding:'8px 14px',background:'rgba(255,255,255,0.06)',border:'1px solid #334155',borderRadius:8,color:'#94a3b8',cursor:'pointer',fontFamily:"'Space Mono',monospace",fontSize:12}}>+ Añadir relación</button>
+      </div>
+    </div>
+  );
+}
+
+function AutomationPanel() {
+  const [rules, setRules] = useState([
+    { id: 1, nombre: "Asignar a técnico disponible", trigger: "Ticket prioridad alta", action: "Asignar automáticamente", sla: "15 min" },
+    { id: 2, nombre: "Recordatorio de mantenimiento", trigger: "Próximo a vencer", action: "Enviar correo y crear tarea", sla: "24 h" }
+  ]);
+  const [form, setForm] = useState({ nombre: "", trigger: "", action: "", sla: "" });
+
+  const agregarRegla = () => {
+    if (!form.nombre.trim()) return;
+    setRules(prev => [...prev, { id: Date.now(), ...form }]);
+    setForm({ nombre: "", trigger: "", action: "", sla: "" });
+  };
+
+  return (
+    <div style={{background:'#0f172a',border:'1px solid #1e293b',borderRadius:14,padding:20,display:'flex',flexDirection:'column',gap:14}}>
+      <div>
+        <div style={{color:'#e2e8f0',fontFamily:"'Space Mono',monospace",fontSize:15,fontWeight:700}}>⚙️ Automatización</div>
+        <div style={{color:'#64748b',fontSize:12,marginTop:4}}>Reglas de asignación, recordatorios, escalamiento por SLA, integración con correo y API REST.</div>
+      </div>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:12}}>
+        {[
+          { title: "Reglas de asignación", value: "Auto-routing por prioridad y categoría" },
+          { title: "Recordatorios", value: "Alertas para mantenimientos y vencimientos" },
+          { title: "SLA y escalamiento", value: "Notificación a líderes cuando se excede el tiempo" }
+        ].map(item => (
+          <div key={item.title} style={{background:'#111d2e',border:'1px solid #1e293b',borderRadius:12,padding:12}}>
+            <div style={{color:'#e2e8f0',fontSize:13,fontWeight:700,marginBottom:6}}>{item.title}</div>
+            <div style={{color:'#64748b',fontSize:12}}>{item.value}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{background:'#111d2e',border:'1px solid #1e293b',borderRadius:12,padding:14}}>
+        <div style={{color:'#e2e8f0',fontFamily:"'Space Mono',monospace",fontSize:14,fontWeight:700,marginBottom:10}}>📬 Integración lista</div>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10}}>
+          {[
+            { label: "Correo", value: "SMTP / Office 365" },
+            { label: "API REST", value: "POST /tickets y /assets" },
+            { label: "Webhooks", value: "Escalación y auditoría" }
+          ].map(item => (
+            <div key={item.label} style={{background:'#0f172a',border:'1px solid #1e293b',borderRadius:8,padding:10}}>
+              <div style={{color:'#0ea5e9',fontSize:11,fontFamily:"'Space Mono',monospace",marginBottom:4}}>{item.label}</div>
+              <div style={{color:'#94a3b8',fontSize:12}}>{item.value}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10}}>
+        <div>
+          <label style={S.label}>Regla</label>
+          <input value={form.nombre} onChange={e=>setForm(prev=>({...prev,nombre:e.target.value}))} style={S.input} />
+        </div>
+        <div>
+          <label style={S.label}>Trigger</label>
+          <input value={form.trigger} onChange={e=>setForm(prev=>({...prev,trigger:e.target.value}))} style={S.input} />
+        </div>
+        <div>
+          <label style={S.label}>Acción</label>
+          <input value={form.action} onChange={e=>setForm(prev=>({...prev,action:e.target.value}))} style={S.input} />
+        </div>
+        <div>
+          <label style={S.label}>SLA</label>
+          <input value={form.sla} onChange={e=>setForm(prev=>({...prev,sla:e.target.value}))} style={S.input} />
+        </div>
+      </div>
+      <button onClick={agregarRegla} style={{alignSelf:'flex-start',padding:'8px 14px',background:'linear-gradient(135deg,#0ea5e9,#6366f1)',border:'none',borderRadius:8,color:'#fff',cursor:'pointer',fontFamily:"'Space Mono',monospace",fontSize:12,fontWeight:700}}>+ Añadir regla</button>
+
+      <div style={{display:'flex',flexDirection:'column',gap:8}}>
+        {rules.map(rule => (
+          <div key={rule.id} style={{background:'#111d2e',border:'1px solid #1e293b',borderRadius:10,padding:'10px 12px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+            <div>
+              <div style={{color:'#e2e8f0',fontSize:13,fontWeight:700}}>{rule.nombre}</div>
+              <div style={{color:'#64748b',fontSize:12,marginTop:2}}>{rule.trigger} · {rule.action}</div>
+            </div>
+            <span style={{color:'#fbbf24',fontSize:12,fontFamily:"'Space Mono',monospace"}}>SLA {rule.sla}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ReportsPanel({ assets }) {
+  const tickets = [
+    { id: 1, estado: "Abierto", tiempo: 12, sede: "Bogotá", usuario: "Ana" },
+    { id: 2, estado: "Cerrado", tiempo: 8, sede: "Medellín", usuario: "Luis" },
+    { id: 3, estado: "Abierto", tiempo: 20, sede: "Bogotá", usuario: "Sofía" },
+    { id: 4, estado: "Cerrado", tiempo: 6, sede: "Cali", usuario: "Pedro" }
+  ];
+
+  const ticketsAbiertos = tickets.filter(t => t.estado === "Abierto").length;
+  const tiempoPromedio = Math.round(tickets.reduce((sum, t) => sum + t.tiempo, 0) / tickets.length);
+
+  const bySite = Object.entries(assets.reduce((acc, a) => {
+    const site = a.ubicacion || a.area || "Sin sede";
+    acc[site] = (acc[site] || 0) + 1;
+    return acc;
+  }, {})).map(([name, value]) => ({ name, value })).slice(0, 6);
+
+  const byUser = Object.entries(assets.reduce((acc, a) => {
+    const user = a.usuario_asignado || a.responsable || "Sin asignar";
+    acc[user] = (acc[user] || 0) + 1;
+    return acc;
+  }, {})).map(([name, value]) => ({ name, value })).slice(0, 6);
+
+  const warranties = assets.filter(a => {
+    if (!a.garantia) return false;
+    const date = new Date(a.garantia);
+    if (Number.isNaN(date.getTime())) return false;
+    const days = Math.floor((date - new Date()) / 86400000);
+    return days >= 0 && days <= 90;
+  }).slice(0, 5);
+
+  const byCategory = Object.entries(assets.reduce((acc, a) => {
+    acc[a.tipo || "Otro"] = (acc[a.tipo || "Otro"] || 0) + 1;
+    return acc;
+  }, {})).map(([name, value]) => ({ name, value })).slice(0, 8);
+
+  return (
+    <div style={{background:'#0f172a',border:'1px solid #1e293b',borderRadius:14,padding:20,display:'flex',flexDirection:'column',gap:16}}>
+      <div>
+        <div style={{color:'#e2e8f0',fontFamily:"'Space Mono',monospace",fontSize:15,fontWeight:700}}>📊 Reportes</div>
+        <div style={{color:'#64748b',fontSize:12,marginTop:4}}>Indicadores clave de tickets, activos, garantías e inventario por categoría.</div>
+      </div>
+
+      <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12}}>
+        {[
+          { label: "Tickets abiertos", value: ticketsAbiertos, color: "#0ea5e9" },
+          { label: "Tiempo promedio de resolución", value: `${tiempoPromedio} h`, color: "#22c55e" },
+          { label: "Sedes registradas", value: bySite.length, color: "#f59e0b" },
+          { label: "Garantías próximas", value: warranties.length, color: "#f43f5e" }
+        ].map(item => (
+          <div key={item.label} style={{background:'#111d2e',border:'1px solid #1e293b',borderRadius:12,padding:14}}>
+            <div style={{color:'#64748b',fontSize:11,fontFamily:"'Space Mono',monospace",textTransform:'uppercase',marginBottom:6}}>{item.label}</div>
+            <div style={{color:item.color,fontSize:24,fontWeight:700}}>{item.value}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16}}>
+        <div style={{background:'#111d2e',border:'1px solid #1e293b',borderRadius:12,padding:14}}>
+          <div style={{color:'#e2e8f0',fontFamily:"'Space Mono',monospace",fontSize:13,fontWeight:700,marginBottom:10}}>📍 Activos por sede</div>
+          <ResponsiveContainer width="100%" height={180}>
+            <BarChart data={bySite}>
+              <XAxis dataKey="name" tick={{fill:'#64748b',fontSize:10}} />
+              <YAxis tick={{fill:'#64748b',fontSize:10}} />
+              <Tooltip />
+              <Bar dataKey="value" fill="#0ea5e9" radius={[4,4,0,0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+        <div style={{background:'#111d2e',border:'1px solid #1e293b',borderRadius:12,padding:14}}>
+          <div style={{color:'#e2e8f0',fontFamily:"'Space Mono',monospace",fontSize:13,fontWeight:700,marginBottom:10}}>👤 Equipos por usuario</div>
+          <ResponsiveContainer width="100%" height={180}>
+            <BarChart data={byUser}>
+              <XAxis dataKey="name" tick={{fill:'#64748b',fontSize:10}} />
+              <YAxis tick={{fill:'#64748b',fontSize:10}} />
+              <Tooltip />
+              <Bar dataKey="value" fill="#6366f1" radius={[4,4,0,0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16}}>
+        <div style={{background:'#111d2e',border:'1px solid #1e293b',borderRadius:12,padding:14}}>
+          <div style={{color:'#e2e8f0',fontFamily:"'Space Mono',monospace",fontSize:13,fontWeight:700,marginBottom:10}}>🛡️ Garantías próximas a vencer</div>
+          <div style={{display:'flex',flexDirection:'column',gap:8}}>
+            {warranties.length === 0 ? <div style={{color:'#64748b',fontSize:12}}>No hay garantías próximas.</div> : warranties.map(item => (
+              <div key={item.id} style={{background:'#0f172a',border:'1px solid #1e293b',borderRadius:8,padding:'8px 10px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                <span style={{color:'#cbd5e1',fontSize:13}}>{item.nombre}</span>
+                <span style={{color:'#fbbf24',fontSize:12}}>{item.garantia}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div style={{background:'#111d2e',border:'1px solid #1e293b',borderRadius:12,padding:14}}>
+          <div style={{color:'#e2e8f0',fontFamily:"'Space Mono',monospace",fontSize:13,fontWeight:700,marginBottom:10}}>📦 Inventario por categorías</div>
+          <div style={{display:'flex',flexDirection:'column',gap:8}}>
+            {byCategory.map(item => (
+              <div key={item.name} style={{display:'flex',justifyContent:'space-between',alignItems:'center',background:'#0f172a',border:'1px solid #1e293b',borderRadius:8,padding:'8px 10px'}}>
+                <span style={{color:'#cbd5e1',fontSize:13}}>{item.name}</span>
+                <span style={{color:'#0ea5e9',fontSize:12,fontFamily:"'Space Mono',monospace"}}>{item.value}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ═══════════════════════════════════════════════════════════
 //  APP PRINCIPAL
 // ═══════════════════════════════════════════════════════════
@@ -333,9 +748,13 @@ export default function InventarioTI({ session, perfil }) {
   const [tab,       setTab]       = useState("tabla");
   const [usersModal,setUsersModal]= useState(false);
 
-  const rol = perfil?.rol || 'viewer';
-  const esAdmin   = rol === 'admin';
-  const esTecnico = rol === 'tecnico' || esAdmin;
+  const rol = normalizeRole(perfil?.rol || 'user');
+  const esSuperAdmin = rol === 'super_admin';
+  const esAdmin = esSuperAdmin || rol === 'admin';
+  const puedeCrear = esAdmin;
+  const puedeEditar = esAdmin;
+  const puedeEliminar = esAdmin;
+  const puedeGestionarUsuarios = esAdmin;
 
   useEffect(() => { cargarActivos(); }, []);
 
@@ -366,16 +785,19 @@ export default function InventarioTI({ session, perfil }) {
     const ahora = new Date().toLocaleDateString("es-CO");
     if (form.id) {
       const historial = [...(form.historial||[]), { fecha:ahora, evento:`Editado: estado=${form.estado}, área=${form.area}` }];
-      await supabase.from('activos').update({ ...form, historial }).eq('id', form.id);
+      const { error } = await supabase.from('activos').update({ ...form, historial }).eq('id', form.id);
+      if (error) return error.message || "No se pudo actualizar el activo.";
     } else {
       const historial = [{ fecha:ahora, evento:"Activo creado" }];
-      await supabase.from('activos').insert([{
+      const { error } = await supabase.from('activos').insert([{
         ...form, historial,
         user_id: perfil?.tipo === 'personal' ? session.user.id : null,
         org_id:  perfil?.tipo === 'org' ? perfil?.org_id : null
       }]);
+      if (error) return error.message || "No se pudo crear el activo.";
     }
     await cargarActivos();
+    return null;
   };
 
   const handleDelete = async (id) => {
@@ -414,13 +836,16 @@ export default function InventarioTI({ session, perfil }) {
             <span style={{padding:"5px 10px",borderRadius:20,background:"rgba(14,165,233,0.1)",border:"1px solid rgba(14,165,233,0.2)",color:rolColor[rol]||"#94a3b8",fontSize:11,fontFamily:"'Space Mono',monospace"}}>
               {rolLabel[rol]||rol}
             </span>
-            {/* Botón gestionar usuarios (solo admin en org) */}
-            {esAdmin && perfil?.tipo === 'org' && (
-              <button onClick={()=>setUsersModal(true)} style={{padding:"8px 14px",background:"rgba(255,255,255,0.05)",border:"1px solid #334155",borderRadius:9,color:"#94a3b8",cursor:"pointer",fontFamily:"'Space Mono',monospace",fontSize:12}}>👥 Usuarios</button>
+            {/* Botón gestionar usuarios (admin y super admin) */}
+            {puedeGestionarUsuarios && perfil?.tipo === 'org' && (
+              <button onClick={()=>setUsersModal(true)} style={{padding:"8px 14px",background:"rgba(14,165,233,0.12)",border:"1px solid rgba(14,165,233,0.25)",borderRadius:9,color:"#7dd3fc",cursor:"pointer",fontFamily:"'Space Mono',monospace",fontSize:12,fontWeight:700}}>👥 Usuarios</button>
+            )}
+            {!puedeGestionarUsuarios && perfil?.tipo === 'org' && (
+              <span style={{padding:"8px 14px",background:"rgba(148,163,184,0.08)",border:"1px solid rgba(148,163,184,0.16)",borderRadius:9,color:"#64748b",fontFamily:"'Space Mono',monospace",fontSize:12}}>👤 Solo lectura</span>
             )}
             <button className="exp-btn" onClick={()=>exportExcel(assets)} style={{display:"flex",alignItems:"center",gap:6,padding:"8px 14px",background:"rgba(255,255,255,0.05)",border:"1px solid #334155",borderRadius:9,color:"#94a3b8",cursor:"pointer",fontFamily:"'Space Mono',monospace",fontSize:12}}>📊 Excel</button>
             <button className="exp-btn" onClick={()=>exportPDF(assets)}   style={{display:"flex",alignItems:"center",gap:6,padding:"8px 14px",background:"rgba(255,255,255,0.05)",border:"1px solid #334155",borderRadius:9,color:"#94a3b8",cursor:"pointer",fontFamily:"'Space Mono',monospace",fontSize:12}}>📄 PDF</button>
-            {esTecnico && (
+            {puedeCrear && (
               <button onClick={()=>setModal("create")} style={{display:"flex",alignItems:"center",gap:6,padding:"9px 18px",background:"linear-gradient(135deg,#0ea5e9,#6366f1)",border:"none",borderRadius:10,color:"#fff",cursor:"pointer",fontFamily:"'Space Mono',monospace",fontSize:13,fontWeight:700,boxShadow:"0 4px 15px rgba(14,165,233,0.3)"}}>+ Nuevo</button>
             )}
             <button onClick={()=>supabase.auth.signOut()} style={{padding:"9px 14px",background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.2)",borderRadius:10,color:"#f87171",cursor:"pointer",fontFamily:"'Space Mono',monospace",fontSize:12}}>Salir</button>
@@ -450,8 +875,8 @@ export default function InventarioTI({ session, perfil }) {
           </div>
 
           {/* TABS */}
-          <div style={{display:"flex",gap:4,marginBottom:20,background:"#0f172a",borderRadius:10,padding:4,border:"1px solid #1e293b",width:"fit-content"}}>
-            {[["tabla","📋 Inventario"],["graficas","📊 Gráficas"],["tickets","🎫 Tickets"]].map(([t,label])=>(
+          <div style={{display:"flex",gap:4,marginBottom:20,background:"#0f172a",borderRadius:10,padding:4,border:"1px solid #1e293b",width:"fit-content",flexWrap:"wrap"}}>
+            {[['tabla','📋 Inventario'],['graficas','📊 Gráficas'],['tickets','🎫 Tickets'],['mantenimiento','🛠️ Mantenimiento'],['cmdb','🗂️ CMDB'],['automatizacion','⚙️ Automatización'],['reportes','📊 Reportes']].map(([t,label])=>(
               <button key={t} className="tab-btn" onClick={()=>setTab(t)} style={{padding:"8px 18px",borderRadius:7,border:"none",cursor:"pointer",fontFamily:"'Space Mono',monospace",fontSize:12,fontWeight:700,background:tab===t?"linear-gradient(135deg,#0ea5e9,#6366f1)":"transparent",color:tab===t?"#fff":"#475569"}}>
                 {label}
               </button>
@@ -461,6 +886,14 @@ export default function InventarioTI({ session, perfil }) {
           {tab === "graficas" && <ChartsPanel assets={assets}/> }
 
           {tab === "tickets" && <Tickets session={session} perfil={perfil} activos={assets}/>}
+
+          {tab === "mantenimiento" && <MaintenancePanel assets={assets} />}
+
+          {tab === "cmdb" && <CMDBPanel />}
+
+          {tab === "automatizacion" && <AutomationPanel />}
+
+          {tab === "reportes" && <ReportsPanel assets={assets} />}
 
           {tab === "tabla" && (
             <>
@@ -527,10 +960,10 @@ export default function InventarioTI({ session, perfil }) {
                               </td>
                               <td style={{padding:"13px 14px"}} onClick={e=>e.stopPropagation()}>
                                 <div style={{display:"flex",gap:5}}>
-                                  {esTecnico && (
+                                  {puedeEditar && (
                                     <button className="act-btn" onClick={()=>setModal(a)} style={{padding:"4px 9px",background:"rgba(99,102,241,0.15)",border:"1px solid rgba(99,102,241,0.3)",borderRadius:6,color:"#818cf8",cursor:"pointer",fontSize:12}}>✏️</button>
                                   )}
-                                  {esAdmin && (
+                                  {puedeEliminar && (
                                     <button className="act-btn" onClick={()=>setDelId(a.id)} style={{padding:"4px 9px",background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.2)",borderRadius:6,color:"#f87171",cursor:"pointer",fontSize:12}}>🗑️</button>
                                   )}
                                 </div>

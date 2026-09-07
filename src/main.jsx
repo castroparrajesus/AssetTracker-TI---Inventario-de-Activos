@@ -5,6 +5,13 @@ import App from './App.jsx'
 import Login from './Login.jsx'
 import Setup from './Setup.jsx'
 
+function normalizeRole(role) {
+  const value = String(role || '').toLowerCase()
+  if (['super_admin', 'super-admin', 'superadmin'].includes(value)) return 'super_admin'
+  if (['admin', 'tecnico', 'manager'].includes(value)) return 'admin'
+  return 'user'
+}
+
 function Root() {
   const [session, setSession] = useState(null)
   const [perfil, setPerfil]   = useState(null)
@@ -43,7 +50,7 @@ function Root() {
           .eq('user_id', userId)
           .eq('org_id', data.org_id)
           .maybeSingle()
-        data.rol = miembro?.rol || 'viewer'
+        data.rol = normalizeRole(miembro?.rol || 'user')
       } else {
         data.rol = 'admin' // personal siempre es admin de su propio inventario
       }

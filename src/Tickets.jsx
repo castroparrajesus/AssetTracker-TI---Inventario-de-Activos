@@ -3,6 +3,14 @@ import { supabase } from "./supabase";
 
 const ESTADOS_TICKET = ["Abierto", "En progreso", "Resuelto", "Cerrado"];
 const PRIORIDADES = ["Baja", "Media", "Alta", "Critica"];
+const CATEGORIAS = ["Hardware", "Software", "Red", "Seguridad", "Acceso", "Otro"];
+
+function normalizeRole(role) {
+  const value = String(role || "").toLowerCase();
+  if (["super_admin", "super-admin", "superadmin"].includes(value)) return "super_admin";
+  if (["admin", "tecnico", "manager"].includes(value)) return "admin";
+  return "user";
+}
 
 const prioColor = {
   "Baja":    { bg:"rgba(148,163,184,0.15)", text:"#94a3b8" },
@@ -41,19 +49,48 @@ const labelStyle = {
   letterSpacing:1
 };
 
-function TicketForm({ ticket, activos, perfil, onClose, onSave }) {
-  const esViewer = perfil && perfil.rol === "viewer";
+function TicketForm({ ticket, activos, perfil, session, onClose, onSave }) {
+  const rol = normalizeRole(perfil?.rol);
+  const esViewer = rol === "user";
   const [titulo, setTitulo] = useState(ticket ? ticket.titulo : "");
   const [descripcion, setDescripcion] = useState(ticket ? ticket.descripcion : "");
   const [prioridad, setPrioridad] = useState(ticket ? ticket.prioridad : "Media");
+  const [categoria, setCategoria] = useState(ticket ? ticket.categoria : "Hardware");
   const [estado, setEstado] = useState(ticket ? ticket.estado : "Abierto");
   const [activoId, setActivoId] = useState(ticket ? ticket.activo_id : "");
+  const [asignadoA, setAsignadoA] = useState(ticket ? ticket.asignado_a || "" : "");
+  const [autoAsignar, setAutoAsignar] = useState(!ticket);
+  const [adjuntoNombre, setAdjuntoNombre] = useState(ticket ? ticket.adjunto_nombre || "" : "");
+  const [adjuntoBase64, setAdjuntoBase64] = useState(ticket ? ticket.adjunto_base64 || "" : "");
   const [loading, setLoading] = useState(false);
+
+  const handleFileChange = (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      setAdjuntoNombre(file.name);
+      setAdjuntoBase64(reader.result);
+    };
+    reader.readAsDataURL(file);
+  };
 
   const handleSave = async () => {
     if (!titulo) return;
     setLoading(true);
-    await onSave({ titulo, descripcion, prioridad, estado: esViewer ? "Abierto" : estado, activo_id: activoId, id: ticket ? ticket.id : null });
+    const responsable = autoAsignar ? (session?.user?.email || "Auto") : asignadoA;
+    await onSave({
+      titulo,
+      descripcion,
+      prioridad,
+      categoria,
+      estado: esViewer ? "Abierto" : estado,
+      activo_id: activoId || null,
+      asignado_a: responsable || null,
+      adjunto_nombre: adjuntoNombre || null,
+      adjunto_base64: adjuntoBase64 || null,
+      id: ticket ? ticket.id : null,
+    });
     setLoading(false);
     onClose();
   };
@@ -91,11 +128,36 @@ function TicketForm({ ticket, activos, perfil, onClose, onSave }) {
             </div>
           )}
           <div>
+            <label style={labelStyle}>Categoría</label>
+            <select value={categoria} onChange={e=>setCategoria(e.target.value)} style={{...inputStyle, cursor:"pointer"}}>
+              {CATEGORIAS.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+          <div>
             <label style={labelStyle}>Activo relacionado</label>
             <select value={activoId} onChange={e=>setActivoId(e.target.value)} style={{...inputStyle, cursor:"pointer"}}>
               <option value="">Sin activo relacionado</option>
               {activos.map(a => <option key={a.id} value={a.id}>{a.nombre}</option>)}
             </select>
+          </div>
+          {!esViewer && (
+            <div>
+              <label style={labelStyle}>Asignación</label>
+              <div style={{display:"flex", gap:8, flexDirection:"column"}}>
+                <select value={autoAsignar ? "auto" : "manual"} onChange={e=>setAutoAsignar(e.target.value === "auto")} style={{...inputStyle, cursor:"pointer"}}>
+                  <option value="auto">Asignar automáticamente al responsable actual</option>
+                  <option value="manual">Asignar manualmente</option>
+                </select>
+                {!autoAsignar && (
+                  <input value={asignadoA} onChange={e=>setAsignadoA(e.target.value)} placeholder="Nombre o correo del responsable" style={inputStyle} />
+                )}
+              </div>
+            </div>
+          )}
+          <div>
+            <label style={labelStyle}>Adjunto</label>
+            <input type="file" onChange={handleFileChange} style={{...inputStyle, padding:"8px 10px"}} />
+            {adjuntoNombre && <div style={{marginTop:6, color:"#7dd3fc", fontSize:12}}>Archivo: {adjuntoNombre}</div>}
           </div>
         </div>
         <div style={{display:"flex",gap:12,marginTop:24,justifyContent:"flex-end"}}>
@@ -115,9 +177,10 @@ function TicketDetalle({ ticket, activos, session, perfil, onClose, onUpdate }) 
   const [comentarios, setComentarios] = useState([]);
   const [nuevoComentario, setNuevoComentario] = useState("");
   const [loading, setLoading] = useState(false);
+  const [historial, setHistorial] = useState(ticket.historial || []);
 
-  const rol = perfil && perfil.rol ? perfil.rol : "viewer";
-  const esTecnico = rol === "tecnico" || rol === "admin";
+  const rol = normalizeRole(perfil?.rol);
+  const esTecnico = rol === "admin" || rol === "super_admin";
   const activoRelacionado = activos.find(a => String(a.id) === String(ticket.activo_id));
 
   useEffect(() => {
@@ -129,6 +192,12 @@ function TicketDetalle({ ticket, activos, session, perfil, onClose, onUpdate }) 
     if (res.data) setComentarios(res.data);
   }
 
+  async function registrarHistorial(evento) {
+    const siguiente = [...historial, { fecha: new Date().toLocaleString("es-CO"), evento }];
+    setHistorial(siguiente);
+    await supabase.from("tickets").update({ historial: siguiente, updated_at: new Date().toISOString() }).eq("id", ticket.id);
+  }
+
   async function enviarComentario() {
     if (!nuevoComentario.trim()) return;
     setLoading(true);
@@ -137,6 +206,7 @@ function TicketDetalle({ ticket, activos, session, perfil, onClose, onUpdate }) 
       user_id: session.user.id,
       contenido: nuevoComentario
     }]);
+    await registrarHistorial(`Comentario agregado por ${session.user.email || "usuario"}`);
     setNuevoComentario("");
     await cargarComentarios();
     setLoading(false);
@@ -144,9 +214,17 @@ function TicketDetalle({ ticket, activos, session, perfil, onClose, onUpdate }) 
 
   async function cambiarEstado(nuevoEstado) {
     await supabase.from("tickets").update({ estado: nuevoEstado, updated_at: new Date().toISOString() }).eq("id", ticket.id);
+    await registrarHistorial(`Estado actualizado a ${nuevoEstado}`);
     onUpdate();
     onClose();
   }
+
+  const enviarCorreo = () => {
+    const destino = perfil?.email || session?.user?.email || "soporte@empresa.com";
+    const asunto = encodeURIComponent(`Ticket: ${ticket.titulo}`);
+    const cuerpo = encodeURIComponent(`Ticket #${ticket.id}\n\nEstado: ${ticket.estado}\nPrioridad: ${ticket.prioridad}\nCategoría: ${ticket.categoria || "Sin categoría"}\n\nDescripción:\n${ticket.descripcion || "Sin descripción"}`);
+    window.location.href = `mailto:${destino}?subject=${asunto}&body=${cuerpo}`;
+  };
 
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:300,backdropFilter:"blur(4px)"}}>
@@ -192,6 +270,11 @@ function TicketDetalle({ ticket, activos, session, perfil, onClose, onUpdate }) 
           </div>
         )}
 
+        <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
+          <button onClick={enviarCorreo} style={{padding:"8px 12px",background:"rgba(14,165,233,0.1)",border:"1px solid rgba(14,165,233,0.2)",borderRadius:8,color:"#7dd3fc",cursor:"pointer",fontSize:12,fontFamily:"'Space Mono',monospace"}}>📧 Notificar por correo</button>
+          {ticket.asignado_a && <span style={{padding:"8px 12px",background:"rgba(16,185,129,0.1)",border:"1px solid rgba(16,185,129,0.2)",borderRadius:8,color:"#34d399",fontSize:12,fontFamily:"'Space Mono',monospace"}}>👤 {ticket.asignado_a}</span>}
+        </div>
+
         {!esTecnico && (
           <div style={{marginBottom:16,background:"rgba(99,102,241,0.08)",border:"1px solid rgba(99,102,241,0.2)",borderRadius:10,padding:"10px 14px",color:"#818cf8",fontSize:12,fontFamily:"'Space Mono',monospace"}}>
             Un tecnico atendara tu ticket pronto
@@ -202,6 +285,14 @@ function TicketDetalle({ ticket, activos, session, perfil, onClose, onUpdate }) 
           <div style={{color:"#475569",fontSize:11,fontFamily:"'Space Mono',monospace",textTransform:"uppercase",letterSpacing:1,marginBottom:12}}>
             Comentarios ({comentarios.length})
           </div>
+          {historial.length > 0 && (
+            <div style={{marginBottom:12, background:"rgba(251,191,36,0.08)", border:"1px solid rgba(251,191,36,0.2)", borderRadius:10, padding:"10px 12px"}}>
+              <div style={{color:"#fbbf24", fontSize:11, fontFamily:"'Space Mono',monospace", textTransform:"uppercase", letterSpacing:1, marginBottom:6}}>Historial</div>
+              {historial.slice().reverse().map((item, index) => (
+                <div key={index} style={{color:"#cbd5e1", fontSize:12, marginTop:4}}>{item.fecha} — {item.evento}</div>
+              ))}
+            </div>
+          )}
           <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:16,maxHeight:180,overflowY:"auto"}}>
             {comentarios.length === 0 && (
               <div style={{color:"#334155",fontSize:13,textAlign:"center",padding:"12px 0",fontFamily:"'Space Mono',monospace"}}>Sin comentarios</div>
@@ -234,10 +325,10 @@ export default function Tickets({ session, perfil, activos }) {
   const [detail, setDetail] = useState(null);
   const [filtro, setFiltro] = useState("Todos");
 
-  const rol = perfil && perfil.rol ? perfil.rol : "viewer";
-  const esViewer = rol === "viewer";
-  const esTecnico = rol === "tecnico" || rol === "admin";
-  const esAdmin = rol === "admin";
+  const rol = normalizeRole(perfil?.rol);
+  const esViewer = rol === "user";
+  const esTecnico = rol === "admin" || rol === "super_admin";
+  const esAdmin = rol === "admin" || rol === "super_admin";
 
   useEffect(() => { cargarTickets(); }, []);
 
@@ -249,15 +340,33 @@ export default function Tickets({ session, perfil, activos }) {
   }
 
   async function handleSave(form) {
+    const historial = [{ fecha: new Date().toLocaleString("es-CO"), evento: form.id ? "Ticket actualizado" : "Ticket creado" }];
     if (form.id) {
-      await supabase.from("tickets").update({ titulo: form.titulo, descripcion: form.descripcion, prioridad: form.prioridad, estado: form.estado, activo_id: form.activo_id || null, updated_at: new Date().toISOString() }).eq("id", form.id);
+      await supabase.from("tickets").update({
+        titulo: form.titulo,
+        descripcion: form.descripcion,
+        prioridad: form.prioridad,
+        categoria: form.categoria || "Otro",
+        estado: form.estado,
+        activo_id: form.activo_id || null,
+        asignado_a: form.asignado_a || null,
+        adjunto_nombre: form.adjunto_nombre || null,
+        adjunto_base64: form.adjunto_base64 || null,
+        historial,
+        updated_at: new Date().toISOString(),
+      }).eq("id", form.id);
     } else {
       await supabase.from("tickets").insert([{
         titulo: form.titulo,
         descripcion: form.descripcion,
         prioridad: form.prioridad,
+        categoria: form.categoria || "Otro",
         estado: "Abierto",
         activo_id: form.activo_id || null,
+        asignado_a: form.asignado_a || null,
+        adjunto_nombre: form.adjunto_nombre || null,
+        adjunto_base64: form.adjunto_base64 || null,
+        historial,
         user_id: perfil && perfil.tipo === "personal" ? session.user.id : null,
         org_id: perfil && perfil.tipo === "org" ? perfil.org_id : null,
       }]);
@@ -356,7 +465,7 @@ export default function Tickets({ session, perfil, activos }) {
       </div>
 
       {(modal === "create" || (modal && modal.id)) && (
-        <TicketForm ticket={modal === "create" ? null : modal} activos={activos} perfil={perfil} onClose={() => setModal(null)} onSave={handleSave} />
+        <TicketForm ticket={modal === "create" ? null : modal} activos={activos} perfil={perfil} session={session} onClose={() => setModal(null)} onSave={handleSave} />
       )}
       {detail && (
         <TicketDetalle ticket={detail} activos={activos} session={session} perfil={perfil} onClose={() => setDetail(null)} onUpdate={cargarTickets} />
